@@ -5,6 +5,7 @@ import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import { ListingsDto } from '../listings/dto/listings.dto';
 import { ItemViewDto, ItemsPageDto, SalesChartDto } from './dto/item-view.dto';
 import { ItemsQueryDto } from './dto/items-query.dto';
+import { ItemLibraryQueryDto, type ItemLibraryDto } from './dto/item-library.dto';
 import { FloatSearchDto, FloatSearchQueryDto } from './dto/float-search.dto';
 import { FloatSearchService } from './float-search.service';
 import { ItemsService } from './items.service';
@@ -34,6 +35,11 @@ export class ItemsController {
   @Get('facets')
   facets(): { collections: { name: string; image: string | null }[] } {
     return this.items.facets();
+  }
+
+  @Get('library')
+  library(@Query() query: ItemLibraryQueryDto): ItemLibraryDto {
+    return this.items.library(query);
   }
 
   @Get('one')

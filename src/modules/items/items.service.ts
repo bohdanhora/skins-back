@@ -9,6 +9,8 @@ import { summarizeSales } from '../../domain/sales';
 import { type ItemsQueryDto } from './dto/items-query.dto';
 import { ItemIndexService } from './item-index.service';
 import { feesFrom, queryItems, toView } from './item-query';
+import { buildItemLibrary } from './item-library';
+import { type ItemLibraryDto, type ItemLibraryQueryDto } from './dto/item-library.dto';
 
 const ITEM_LISTINGS = 10;
 
@@ -58,5 +60,9 @@ export class ItemsService {
 
   facets(): { collections: { name: string; image: string | null }[] } {
     return { collections: this.index.collections() };
+  }
+
+  library(query: ItemLibraryQueryDto): ItemLibraryDto {
+    return buildItemLibrary(this.index.all(), query);
   }
 }
