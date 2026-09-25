@@ -9,9 +9,9 @@ import {
   type Listing,
 } from '../../domain/listing';
 import { MarketId, whiteMarketItemUrl, whiteMarketListingUrl } from '../../domain/market-links';
+import { type MarketPhase } from '../../domain/market-variant';
 
 const GRAPHQL_URL = 'https://api.white.market/graphql/partner';
-/** Access tokens live 24 hours; renew a little earlier. */
 const ACCESS_TOKEN_TTL_MS = 23 * 60 * 60_000;
 const STICKER_SUGGESTIONS = 20;
 
@@ -64,17 +64,27 @@ interface RawProduct {
 }
 
 export interface WhiteMarketListingSearch {
-  /** Exact market name. */
   name?: string;
-  /** Part of a name: white.market searches it loosely, callers filter the result. */
   nameContains?: string;
   stickers?: string[];
   priceFrom?: number;
   priceTo?: number;
   floatFrom?: number;
   floatTo?: number;
+  phase?: MarketPhase | null;
   limit: number;
 }
+
+const WHITE_MARKET_PHASES: Record<MarketPhase, string> = {
+  'phase-1': 'PHASE1',
+  'phase-2': 'PHASE2',
+  'phase-3': 'PHASE3',
+  'phase-4': 'PHASE4',
+  ruby: 'RUBY',
+  sapphire: 'SAPPHIRE',
+  emerald: 'EMERALD',
+  'black-pearl': 'BLACK_PEARL',
+};
 
 const centsToMoney = (cents: number): { value: string; currency: 'USD' } => ({
   value: (cents / 100).toFixed(2),
@@ -119,6 +129,7 @@ export class WhiteMarketPartnerClient {
             : {}),
           ...(search.floatFrom !== undefined ? { csgoFloatFrom: String(search.floatFrom) } : {}),
           ...(search.floatTo !== undefined ? { csgoFloatTo: String(search.floatTo) } : {}),
+          ...(search.phase ? { csgoPhase: WHITE_MARKET_PHASES[search.phase] } : {}),
           sort: { field: 'PRICE', type: 'ASC' },
         },
       },
@@ -127,7 +138,6 @@ export class WhiteMarketPartnerClient {
     return data.market_list.edges.map(({ node }) => this.toListing(node));
   }
 
-  /** Maps a catalog sticker name to the exact spelling white.market filters by. */
   private async resolveStickerName(sticker: string): Promise<string> {
     const wanted = toStickerItemName(sticker).toLowerCase();
     const data = await this.request<{

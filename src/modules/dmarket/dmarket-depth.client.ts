@@ -2,9 +2,9 @@ import { Injectable } from '@nestjs/common';
 
 import { fetchJson } from '../../common/http/fetch-json';
 import { type DepthOffer, type DepthOrder } from '../../domain/float-snipes';
+import { normalizeMarketPhase } from '../../domain/market-variant';
 import { DmarketRateLimiter, type RequestPriority } from './dmarket-rate-limiter';
 
-/** Public order book: every listing with its exact float, and every buy order. */
 const DEPTH_URL = 'https://api.dmarket.com/marketplace-api/v1/market-depth';
 const CS2_GAME_ID = 'a8db';
 const ANY = 'any';
@@ -35,7 +35,6 @@ const toNumber = (value: string | undefined): number | null => {
     : null;
 };
 
-/** "any" and missing both mean the order does not care. */
 const condition = (value: string | undefined): string | null =>
   value && value !== ANY ? value : null;
 
@@ -53,7 +52,6 @@ export class DmarketDepthClient {
       priority,
     );
 
-    // Offers at one price come as a single level with one attribute set per listing.
     const offers = (raw.offers ?? []).flatMap((level) => {
       const price = Number(level.price);
       const attributes = level.attributes.length > 0 ? level.attributes : [{}];
@@ -62,7 +60,7 @@ export class DmarketDepthClient {
         price,
         float: toNumber(attribute.floatValue),
         paintSeed: toNumber(attribute.paintSeed),
-        phase: condition(attribute.phaseTitle),
+        phase: normalizeMarketPhase(attribute.phaseTitle),
       }));
     });
 
@@ -74,7 +72,7 @@ export class DmarketDepthClient {
         amount: Number(level.amount),
         floatPart: condition(attribute.floatPartValue),
         paintSeed: toNumber(attribute.paintSeed),
-        phase: condition(attribute.phaseTitle),
+        phase: normalizeMarketPhase(attribute.phaseTitle),
       };
     });
 

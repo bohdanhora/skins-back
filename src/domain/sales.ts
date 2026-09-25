@@ -1,45 +1,31 @@
-/** One day of DMarket sales: how many sold and their average price. */
 export interface DailySales {
-  /** UTC day, YYYY-MM-DD. */
   day: string;
-  /** Average sale price, cents. */
   average: number;
   count: number;
 }
 
 export interface SalesStats {
-  /**
-   * The low end of what the item actually sold for lately, cents.
-   * Averages are pulled up by rare floats and stickers, so the lower quartile
-   * of daily averages is a truer "normal price" than the plain mean.
-   */
   floor: number;
-  /** Most recent day with sales. */
   lastDay: string;
   lastAverage: number;
-  /** Sold during the last 7 days. */
   weekSales: number;
+  eightWeekSales?: number;
+  eightWeekAverage?: number;
+  trendPercent?: number | null;
 }
 
 export interface TopOffer {
-  /** Price you pay now: the cheapest listing on either market, cents. */
   price: number;
-  /**
-   * What the item is really worth right now: the recent sales floor, or the
-   * other market's lowest listing when that is cheaper. Rare patterns can lift
-   * sales averages, but nobody pays more than the next listing.
-   */
   reference: number;
-  /** How much below the reference, cents and percent. */
   discount: number;
   percent: number;
-  /** Best buy order as a share of the price, 0..100+, or null when nobody buys. */
   bidCover: number | null;
 }
 
 const DAY_MS = 86_400_000;
 const FLOOR_WINDOW_DAYS = 14;
 const WEEK_DAYS = 7;
+const CHART_DAYS = 56;
 const MIN_SALE_DAYS = 3;
 const FLOOR_QUANTILE = 0.25;
 
@@ -64,6 +50,25 @@ export const summarizeSales = (days: DailySales[], now = Date.now()): SalesStats
 
   const last = sold.reduce((latest, entry) => (entry.day > latest.day ? entry : latest));
 
+  const chart = sold.filter((entry) => daysAgo(entry.day, now) < CHART_DAYS);
+  const week = chart.filter((entry) => daysAgo(entry.day, now) < WEEK_DAYS);
+  const previousWeek = chart.filter((entry) => {
+    const age = daysAgo(entry.day, now);
+
+    return age >= WEEK_DAYS && age < WEEK_DAYS * 2;
+  });
+  const volume = (entries: DailySales[]): number =>
+    entries.reduce((sum, entry) => sum + entry.count, 0);
+  const weightedAverage = (entries: DailySales[]): number | null => {
+    const count = volume(entries);
+
+    return count > 0
+      ? Math.round(entries.reduce((sum, entry) => sum + entry.average * entry.count, 0) / count)
+      : null;
+  };
+  const currentAverage = weightedAverage(week);
+  const previousAverage = weightedAverage(previousWeek);
+
   return {
     floor: quantile(
       recent.map((entry) => entry.average).sort((a, b) => a - b),
@@ -71,9 +76,13 @@ export const summarizeSales = (days: DailySales[], now = Date.now()): SalesStats
     ),
     lastDay: last.day,
     lastAverage: last.average,
-    weekSales: sold
-      .filter((entry) => daysAgo(entry.day, now) < WEEK_DAYS)
-      .reduce((sum, entry) => sum + entry.count, 0),
+    weekSales: volume(week),
+    eightWeekSales: volume(chart),
+    eightWeekAverage: weightedAverage(chart) ?? last.average,
+    trendPercent:
+      currentAverage !== null && previousAverage !== null && previousAverage > 0
+        ? Math.round(((currentAverage - previousAverage) / previousAverage) * 10_000) / 100
+        : null,
   };
 };
 
@@ -81,7 +90,6 @@ export const findTopOffer = (
   price: number | null,
   bid: number | null,
   stats: SalesStats | null,
-  /** Lowest listing on the market that is not the cheapest one, if any. */
   nextListing: number | null = null,
 ): TopOffer | null => {
   if (price === null || price <= 0 || !stats) {

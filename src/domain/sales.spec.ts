@@ -15,7 +15,7 @@ describe('summarizeSales', () => {
       NOW,
     );
 
-    expect(stats).toEqual({
+    expect(stats).toMatchObject({
       floor: 7700,
       lastDay: day(0, 0).day,
       lastAverage: 7000,

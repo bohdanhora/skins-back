@@ -4,19 +4,20 @@ import { DiskCache } from '../../common/cache/disk-cache';
 import { fetchJson } from '../../common/http/fetch-json';
 import { appConfig, syncConfig, type AppConfig, type SyncConfig } from '../../config/app.config';
 
-/** Community maintained CS2 item database: names, pictures and rarities. */
 const METADATA_URL =
   'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/all.json';
+const SKINS_URL =
+  'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins.json';
 const METADATA_TIMEOUT_MS = 180_000;
-const CACHE_KEY = 'catalog';
+const CACHE_KEY = 'catalog-v2';
 const RETRY_AFTER_FAILURE_MS = 10 * 60_000;
 
 export interface ItemMetadata {
   image: string | null;
   rarityColor: string | null;
   rarity: string | null;
-  /** Prefix of the source id: skin, agent, sticker, crate and so on. */
   type: string;
+  collections: { name: string; image: string | null }[];
 }
 
 interface RawMetadataEntry {
@@ -24,6 +25,12 @@ interface RawMetadataEntry {
   market_hash_name?: string | null;
   image?: string | null;
   rarity?: { name?: string; color?: string } | null;
+  skin_id?: string;
+}
+
+interface RawSkinEntry {
+  id?: string;
+  collections?: { name?: string; image?: string | null }[];
 }
 
 @Injectable()
@@ -33,6 +40,7 @@ export class CatalogService implements OnModuleDestroy {
   private entries = new Map<string, ItemMetadata>();
   private timer: NodeJS.Timeout | null = null;
   private loading: Promise<void> | null = null;
+  private currentVersion = 0;
 
   constructor(
     @Inject(appConfig.KEY) app: AppConfig,
@@ -45,6 +53,10 @@ export class CatalogService implements OnModuleDestroy {
     return this.entries.size;
   }
 
+  get version(): number {
+    return this.currentVersion;
+  }
+
   get(name: string): ItemMetadata | undefined {
     return this.entries.get(name);
   }
@@ -53,12 +65,12 @@ export class CatalogService implements OnModuleDestroy {
     return [...this.entries.keys()];
   }
 
-  /** Loads from disk first, then refreshes in the background when the copy is stale. */
   async start(): Promise<void> {
     const cached = await this.cache.read<Record<string, ItemMetadata>>(CACHE_KEY);
 
     if (cached) {
       this.entries = new Map(Object.entries(cached.value));
+      this.currentVersion += 1;
       this.logger.log(`Catalog restored from disk: ${this.entries.size} items`);
     }
 
@@ -92,9 +104,20 @@ export class CatalogService implements OnModuleDestroy {
   }
 
   private async download(): Promise<void> {
-    const raw = await fetchJson<Record<string, RawMetadataEntry>>(METADATA_URL, {
-      timeoutMs: METADATA_TIMEOUT_MS,
-    });
+    const [raw, skins] = await Promise.all([
+      fetchJson<Record<string, RawMetadataEntry>>(METADATA_URL, {
+        timeoutMs: METADATA_TIMEOUT_MS,
+      }),
+      fetchJson<RawSkinEntry[]>(SKINS_URL, { timeoutMs: METADATA_TIMEOUT_MS }),
+    ]);
+    const collectionsBySkin = new Map(
+      skins.map((skin) => [
+        skin.id,
+        (skin.collections ?? []).flatMap((collection) =>
+          collection.name ? [{ name: collection.name, image: collection.image ?? null }] : [],
+        ),
+      ]),
+    );
     const entries = new Map<string, ItemMetadata>();
 
     for (const entry of Object.values(raw)) {
@@ -109,10 +132,12 @@ export class CatalogService implements OnModuleDestroy {
         rarityColor: entry.rarity?.color ?? null,
         rarity: entry.rarity?.name ?? null,
         type: (entry.id ?? '').split('-')[0],
+        collections: collectionsBySkin.get(entry.skin_id) ?? [],
       });
     }
 
     this.entries = entries;
+    this.currentVersion += 1;
     await this.cache.write(CACHE_KEY, Object.fromEntries(entries));
     this.logger.log(`Catalog downloaded: ${entries.size} items`);
   }
