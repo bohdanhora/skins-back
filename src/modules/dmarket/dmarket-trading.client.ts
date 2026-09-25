@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { fetchJson } from '../../common/http/fetch-json';
 import { dmarketConfig, type DmarketConfig } from '../../config/app.config';
 import { toStickerItemName, type Listing } from '../../domain/listing';
-import { MarketId, dmarketItemUrl } from '../../domain/market-links';
+import { MarketId, dmarketListingUrl } from '../../domain/market-links';
 import { DmarketRateLimiter } from './dmarket-rate-limiter';
 import { DmarketSigner } from './dmarket-signer';
 
@@ -104,7 +104,7 @@ export class DmarketTradingClient {
         name: toStickerItemName(sticker.name),
         image: sticker.image || null,
       })),
-      url: dmarketItemUrl(title),
+      url: dmarketListingUrl(title, cs2?.float ?? null),
     };
   }
 

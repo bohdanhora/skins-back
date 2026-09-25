@@ -3,7 +3,7 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { DMARKET_FLOAT_PARTS } from '../../domain/float';
 import { snipeProfit } from '../../domain/float-snipes';
-import { dmarketItemUrl } from '../../domain/market-links';
+import { dmarketItemUrl, dmarketListingUrl } from '../../domain/market-links';
 import { ItemIndexService } from '../items/item-index.service';
 import { PriceBoardService } from '../prices/price-board.service';
 import {
@@ -86,7 +86,7 @@ export class SnipesController {
           listingUrl:
             snipe.source === 'whiteMarket'
               ? (this.board.whiteMarketPrice(name)?.url ?? dmarketItemUrl(name))
-              : dmarketItemUrl(name),
+              : dmarketListingUrl(name, snipe.float),
         });
       }
     }

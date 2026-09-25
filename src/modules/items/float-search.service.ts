@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { DMARKET_FLOAT_PARTS, inRange, overlaps } from '../../domain/float';
-import { MarketId, dmarketItemUrl, whiteMarketItemUrl } from '../../domain/market-links';
+import { MarketId, dmarketListingUrl, whiteMarketItemUrl } from '../../domain/market-links';
 import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
 import { SourceStatus } from '../listings/dto/listings.dto';
 import { PriceBoardService } from '../prices/price-board.service';
@@ -84,7 +84,7 @@ export class FloatSearchService {
             price: offer.price,
             float: offer.float,
             paintSeed: offer.paintSeed,
-            url: dmarketItemUrl(name),
+            url: dmarketListingUrl(name, offer.float),
           })),
         },
         orders: orders
