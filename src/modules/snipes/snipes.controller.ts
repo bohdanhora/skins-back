@@ -67,6 +67,11 @@ export class SnipesController {
             snipe.orderPaintSeed === null &&
             !snipe.orderPhase) ||
           (query.source !== SnipeSourceFilter.All && snipe.source !== (query.source as string)) ||
+          (query.minFloat !== undefined &&
+            (snipe.float === null || snipe.float < query.minFloat)) ||
+          (query.maxFloat !== undefined &&
+            (snipe.float === null || snipe.float > query.maxFloat)) ||
+          (query.phase !== undefined && snipe.phase !== query.phase) ||
           (minPrice !== null && snipe.listingPrice < minPrice) ||
           (maxPrice !== null && snipe.listingPrice > maxPrice)
         ) {
@@ -84,9 +89,10 @@ export class SnipesController {
           percent: Math.round((profit / snipe.listingPrice) * 10_000) / 100,
           checkedAt: new Date(result.checkedAt).toISOString(),
           listingUrl:
-            snipe.source === 'whiteMarket'
-              ? (snipe.listingUrl ?? this.board.whiteMarketPrice(name)?.url ?? dmarketItemUrl(name))
-              : dmarketListingUrl(name, snipe.float),
+            snipe.listingUrl ??
+            (snipe.source === 'whiteMarket'
+              ? (this.board.whiteMarketPrice(name)?.url ?? dmarketItemUrl(name))
+              : dmarketListingUrl(name, snipe.float)),
         });
       }
     }

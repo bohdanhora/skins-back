@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { DiskCache } from '../../common/cache/disk-cache';
-import { wait } from '../../common/http/fetch-json';
+import { UpstreamError, wait } from '../../common/http/fetch-json';
 import { appConfig, syncConfig, type AppConfig, type SyncConfig } from '../../config/app.config';
 import {
   findSnipes,
@@ -15,21 +15,23 @@ import {
   type FloatSnipe,
   type SnipeCandidate,
 } from '../../domain/float-snipes';
+import { parseVariantName } from '../../domain/market-variant';
 import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
+import { CsfloatClient } from '../csfloat/csfloat.client';
 import { PriceBoardService, type PricedItem } from '../prices/price-board.service';
 import { WhiteMarketPartnerClient } from '../white-market/white-market-partner.client';
 
 const CACHE_KEY = 'float-snipes';
 const HAS_WEAR = /\((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/;
 const MIN_PRICE_CENTS = 50;
-/** Cheapest white.market listings compared with DMarket orders per skin. */
 const WHITE_MARKET_LISTINGS = 50;
-/** Finds disappear fast, so items that had one are looked at again much sooner. */
 const HOT_REFRESH_MS = 10 * 60_000;
 const IDLE_PAUSE_MS = 60_000;
 const WARMUP_PAUSE_MS = 5_000;
 const ERROR_PAUSE_MS = 5_000;
 const SAVE_EVERY = 100;
+const CSFLOAT_SCAN_INTERVAL_MS = 20_000;
+const CSFLOAT_BACKOFF_MS = 5 * 60_000;
 
 export interface ItemSnipes {
   snipes: FloatSnipe[];
@@ -42,18 +44,13 @@ export interface SnipeScanProgress {
 }
 
 const cheapest = (item: PricedItem): number | null => {
-  const prices = [item.whiteMarket, item.dmarket]
+  const prices = [item.whiteMarket, item.dmarket, item.csfloat]
     .filter((quote) => quote && quote.listings > 0 && quote.price !== null)
     .map((quote) => quote!.price!);
 
   return prices.length > 0 ? Math.min(...prices) : null;
 };
 
-/**
- * Reads the DMarket order book of every skin that has buy orders and looks for
- * listings whose float, pattern or phase already fits a better paying order.
- * The cheapest white.market listing is checked too: its float is public.
- */
 @Injectable()
 export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(FloatSnipeScannerService.name);
@@ -62,6 +59,7 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
   private candidateCache: { version: number; names: string[] } = { version: -1, names: [] };
   private stopped = false;
   private sinceSave = 0;
+  private nextCsfloatScanAt = 0;
 
   constructor(
     @Inject(appConfig.KEY) app: AppConfig,
@@ -69,6 +67,7 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     private readonly board: PriceBoardService,
     private readonly depth: DmarketDepthClient,
     private readonly whiteMarketPartner: WhiteMarketPartnerClient,
+    private readonly csfloat: CsfloatClient,
   ) {
     this.cache = new DiskCache(app.cacheDir);
   }
@@ -117,7 +116,6 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
       } catch (error) {
         const previous = this.results.get(next);
 
-        // Remember the attempt so one broken title cannot stall the whole pass.
         this.results.set(next, { snipes: previous?.snipes ?? [], checkedAt: Date.now() });
         this.logger.warn(`Float scan for "${next}" failed: ${String(error)}`);
         await wait(ERROR_PAUSE_MS);
@@ -136,21 +134,47 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     const candidates: SnipeCandidate[] = offers.map((offer) => ({ ...offer, source: 'dmarket' }));
 
     candidates.push(...(await this.whiteMarketCandidates(name, orders)));
+    candidates.push(...(await this.csfloatCandidates(name, orders)));
 
     return findSnipes(candidates, orders);
   }
 
-  /**
-   * With the partner key: live white.market listings with their floats and own
-   * pages, fetched only when some DMarket order pays more than the cheapest one.
-   * Without it: the cheapest listing from the public price list, which can be stale.
-   */
+  private async csfloatCandidates(name: string, orders: DepthOrder[]): Promise<SnipeCandidate[]> {
+    if (!this.csfloat.isEnabled || Date.now() < this.nextCsfloatScanAt) return [];
+
+    const bestOrder = Math.max(0, ...orders.map((order) => order.price));
+
+    if (bestOrder <= (this.board.find(name)?.csfloat?.price ?? Infinity)) return [];
+
+    this.nextCsfloatScanAt = Date.now() + CSFLOAT_SCAN_INTERVAL_MS;
+
+    try {
+      const listings = await this.csfloat.searchListings({ name });
+
+      return listings
+        .filter((listing) => listing.price < bestOrder)
+        .map((listing) => ({
+          source: 'csfloat',
+          price: listing.price,
+          float: listing.float,
+          paintSeed: listing.paintSeed,
+          phase: listing.phase,
+          listingUrl: listing.url,
+        }));
+    } catch (error) {
+      if (error instanceof UpstreamError && error.status === 429) {
+        this.nextCsfloatScanAt = Date.now() + CSFLOAT_BACKOFF_MS;
+      }
+      this.logger.warn(`CSFloat listings for "${name}" failed: ${String(error)}`);
+      return [];
+    }
+  }
+
   private async whiteMarketCandidates(
     name: string,
     orders: DepthOrder[],
   ): Promise<SnipeCandidate[]> {
     const cheapest = this.board.whiteMarketPrice(name);
-    // Pattern and phase of white.market listings are not read, so only float orders can match.
     const floatOrders = orders.filter((order) => order.paintSeed === null && order.phase === null);
     const bestOrder = Math.max(0, ...floatOrders.map((order) => order.price));
 
@@ -195,7 +219,6 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
         ];
   }
 
-  /** Items that had a find come first once they get a little old, then everything else. */
   private nextStale(): string | undefined {
     const now = Date.now();
     const names = this.candidates();
@@ -213,7 +236,6 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     );
   }
 
-  /** Skins with a float and at least one DMarket buy order: nothing to find elsewhere. */
   private candidates(): string[] {
     if (this.candidateCache.version !== this.board.version) {
       this.candidateCache = {
@@ -224,6 +246,7 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
             const price = cheapest(item);
 
             return (
+              !parseVariantName(item.name).phase &&
               HAS_WEAR.test(item.name) &&
               (item.dmarket?.bids ?? 0) > 0 &&
               price !== null &&

@@ -3,6 +3,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -13,6 +14,7 @@ import {
 } from 'class-validator';
 
 import { ItemCategory } from '../../../domain/categories';
+import { MARKET_PHASES, type MarketPhase } from '../../../domain/market-variant';
 import { DEFAULT_FEE_PERCENT, MAX_PAGE_SIZE } from '../../items/dto/items-query.dto';
 
 export enum SnipeSort {
@@ -26,6 +28,7 @@ export enum SnipeSourceFilter {
   All = 'all',
   Dmarket = 'dmarket',
   WhiteMarket = 'whiteMarket',
+  Csfloat = 'csfloat',
 }
 
 export class SnipesQueryDto {
@@ -58,6 +61,27 @@ export class SnipesQueryDto {
   @IsNumber()
   @Min(0)
   maxPrice?: number;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  minFloat?: number;
+
+  @ApiPropertyOptional({ minimum: 0, maximum: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  maxFloat?: number;
+
+  @ApiPropertyOptional({ enum: MARKET_PHASES })
+  @IsOptional()
+  @IsIn(MARKET_PHASES)
+  phase?: MarketPhase;
 
   @ApiPropertyOptional({ description: 'Profit after the fee, at least, USD', default: 0 })
   @IsOptional()
@@ -118,8 +142,8 @@ export class SnipeViewDto {
   @ApiProperty({ enum: ItemCategory })
   category!: ItemCategory;
 
-  @ApiProperty({ enum: ['dmarket', 'whiteMarket'] })
-  source!: 'dmarket' | 'whiteMarket';
+  @ApiProperty({ enum: ['dmarket', 'whiteMarket', 'csfloat'] })
+  source!: 'dmarket' | 'whiteMarket' | 'csfloat';
 
   @ApiProperty({ description: 'Cents' })
   listingPrice!: number;
