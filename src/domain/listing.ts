@@ -5,7 +5,6 @@ export interface AppliedSticker {
   image: string | null;
 }
 
-/** One concrete item for sale, with its float and stickers. */
 export interface Listing {
   market: MarketId;
   id: string;
@@ -19,7 +18,6 @@ export interface Listing {
 
 const STICKER_PREFIX = 'Sticker | ';
 
-/** Markets name applied stickers with or without the `Sticker | ` prefix; the catalog always has it. */
 export const toStickerItemName = (name: string): string =>
   name.startsWith(STICKER_PREFIX) ? name : `${STICKER_PREFIX}${name}`;
 

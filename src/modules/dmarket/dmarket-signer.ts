@@ -1,6 +1,5 @@
 import { createPrivateKey, sign, type KeyObject } from 'node:crypto';
 
-/** DER header that wraps a raw 32-byte Ed25519 seed into PKCS#8. */
 const ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
 const SEED_BYTES = 32;
 
@@ -10,10 +9,6 @@ export interface SignedHeaders {
   'X-Request-Sign': string;
 }
 
-/**
- * DMarket signs `METHOD + path?query + body + timestamp` with Ed25519.
- * The secret key from the site is the 64-byte NaCl form: seed followed by the public key.
- */
 export class DmarketSigner {
   private readonly key: KeyObject;
 

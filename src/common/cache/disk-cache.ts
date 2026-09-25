@@ -6,7 +6,6 @@ export interface CachedValue<T> {
   value: T;
 }
 
-/** Small JSON-on-disk cache so a restart does not start from an empty screen. */
 export class DiskCache {
   constructor(private readonly directory: string) {}
 

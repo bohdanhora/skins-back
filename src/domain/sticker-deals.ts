@@ -2,21 +2,13 @@ import { toStickerItemName } from './listing';
 
 export interface PricedSticker {
   name: string;
-  /** What this sticker costs on its own, cents, or null when nobody sells it. */
   price: number | null;
 }
 
 export interface StickerDeal {
-  /** The same skin without anything special: its cheapest listing, cents. */
   basePrice: number | null;
-  /** What you pay above that for this exact listing, cents. Can be zero or negative. */
   overpay: number | null;
-  /** Price of the stickers you searched for, counted on this listing, cents. */
   wantedValue: number;
-  /**
-   * Overpay as a share of the wanted stickers' price. 0.1 means you pay 10% of
-   * what the stickers cost on their own. Lower is better.
-   */
   overpayShare: number | null;
 }
 
@@ -45,7 +37,6 @@ export const evaluateStickerDeal = (
   };
 };
 
-/** Nearly free stickers first; among equals, the cheaper listing. */
 export const compareStickerDeals = (
   left: StickerDeal & { price: number },
   right: StickerDeal & { price: number },

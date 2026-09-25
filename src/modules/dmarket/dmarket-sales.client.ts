@@ -5,10 +5,8 @@ import { dollarsToCents } from '../../domain/listing';
 import { type DailySales } from '../../domain/sales';
 import { DmarketRateLimiter, type RequestPriority } from './dmarket-rate-limiter';
 
-/** Public daily sales chart: count and average price per day. */
 const SALES_GRAPH_URL = 'https://api.dmarket.com/trade-aggregator/v1/avg-sales-graph';
 const CS2_GAME_ID = 'a8db';
-/** "1M" answers with the last eight weeks, one point per day. */
 const DAILY_PERIOD = '1M';
 
 interface RawSalesGraph {

@@ -26,9 +26,7 @@ interface RawOffer {
 }
 
 export interface DmarketListingSearch {
-  /** Exact market name. */
   name?: string;
-  /** The start of a name, e.g. "AK-47" or "AK-47 | Redline": every matching item. */
   namePrefix?: string;
   stickers?: string[];
   priceFrom?: number;
@@ -36,7 +34,6 @@ export interface DmarketListingSearch {
   limit: number;
 }
 
-/** The comma separates filters inside `treeFilters`, so it cannot appear in a value. */
 const filterValue = (value: string): string => value.replaceAll(',', ' ');
 
 @Injectable()
@@ -59,8 +56,6 @@ export class DmarketTradingClient {
   async searchListings(search: DmarketListingSearch): Promise<Listing[]> {
     const offers = await this.fetchOffers(search, (name) => name);
 
-    // The site filters by the plain sticker name, but the stored value may be lowercase.
-    // An empty answer for a sticker search gets one retry in lowercase.
     if (offers.length === 0 && search.stickers?.length) {
       return this.fetchOffers(search, (name) => name.toLowerCase());
     }
@@ -106,7 +101,6 @@ export class DmarketTradingClient {
     const response = await this.get<{ items: RawOffer[] }>(`${OFFERS_PATH}?${query.toString()}`);
     const offers = response.items.map((offer) => this.toListing(offer));
 
-    // `title` is a prefix match, so "AK-47 | Redline" would also bring StatTrak and other wears.
     return search.name ? offers.filter((offer) => offer.name === search.name) : offers;
   }
 
@@ -135,7 +129,6 @@ export class DmarketTradingClient {
 
     const signer = this.signer;
 
-    // Signed at send time: DMarket rejects signatures older than two minutes.
     return this.limiter.schedule(() =>
       fetchJson<T>(`${API_ORIGIN}${pathWithQuery}`, {
         headers: { ...signer.sign('GET', pathWithQuery) },

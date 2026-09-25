@@ -62,7 +62,6 @@ const CONTAINER_MARKERS = [
 ];
 const WEAPON_PREFIXES = /^(StatTrak™ |Souvenir )/;
 
-/** Metadata type (the prefix of a catalog id such as `agent-4613`) wins over name heuristics. */
 export const detectCategory = (name: string, metadataType?: string): ItemCategory => {
   if (metadataType === 'agent') {
     return ItemCategory.Agent;
