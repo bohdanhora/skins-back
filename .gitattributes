@@ -1,0 +1,5 @@
+# Everything is stored and checked out with LF, whatever the machine's
+# core.autocrlf says. Without this a Windows checkout turns every file CRLF and
+# the formatting check fails on line endings alone, with nothing to fix in the
+# file itself. The container entrypoint needs LF to run at all.
+* text=auto eol=lf
