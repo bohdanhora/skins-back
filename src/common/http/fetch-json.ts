@@ -54,4 +54,31 @@ export const fetchJson = async <T>(url: string, options: FetchJsonOptions = {}):
   }
 };
 
+export const fetchText = async (url: string, options: FetchJsonOptions = {}): Promise<string> => {
+  const { method = 'GET', headers, body, timeoutMs = DEFAULT_TIMEOUT_MS, retries = 2 } = options;
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { Accept: 'text/html', ...headers },
+        body,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+
+      if (!response.ok) {
+        throw new UpstreamError(url, response.status, await response.text().catch(() => ''));
+      }
+
+      return await response.text();
+    } catch (error) {
+      if (attempt >= retries || !isRetryable(error)) {
+        throw error;
+      }
+
+      await wait(500 * 2 ** attempt);
+    }
+  }
+};
+
 export { wait };

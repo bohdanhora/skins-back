@@ -31,7 +31,11 @@ export class ItemsController {
     return this.items.list(query);
   }
 
-  // Item names contain `|`, `/` and `™`, so they travel as a query value, not a path segment.
+  @Get('facets')
+  facets(): { collections: { name: string; image: string | null }[] } {
+    return this.items.facets();
+  }
+
   @Get('one')
   @ApiOperation({ summary: 'One item with DMarket prices re-read right now' })
   @ApiQuery({ name: 'name', required: true })
@@ -49,7 +53,7 @@ export class ItemsController {
   }
 
   @Get('floats')
-  @ApiOperation({ summary: 'Listings inside a float range on both markets, plus buy orders' })
+  @ApiOperation({ summary: 'Listings inside a float range on all markets, plus buy orders' })
   @ApiOkResponse({ type: FloatSearchDto })
   floatSearch(@Query() query: FloatSearchQueryDto): Promise<FloatSearchDto> {
     return this.floats.search(query);

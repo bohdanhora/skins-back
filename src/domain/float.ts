@@ -1,9 +1,5 @@
 export type FloatRange = readonly [from: number, to: number];
 
-/**
- * DMarket groups floats into buckets for buy orders ("FT-2" and so on).
- * Each exterior is split into narrow low-float buckets plus one wide tail.
- */
 export const DMARKET_FLOAT_PARTS: Record<string, FloatRange> = {
   'FN-0': [0, 0.01],
   'FN-1': [0.01, 0.02],
@@ -37,9 +33,5 @@ export const DMARKET_FLOAT_PARTS: Record<string, FloatRange> = {
 export const inRange = (value: number, from?: number, to?: number): boolean =>
   (from === undefined || value >= from) && (to === undefined || value <= to);
 
-/**
- * A buy order limited to a float bucket only counts when that bucket shares
- * more than a boundary point with the searched range.
- */
 export const overlaps = (range: FloatRange, from?: number, to?: number): boolean =>
   (to === undefined || range[0] < to) && (from === undefined || range[1] > from);

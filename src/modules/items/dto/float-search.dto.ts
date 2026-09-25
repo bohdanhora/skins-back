@@ -29,8 +29,8 @@ export class FloatSearchQueryDto {
 }
 
 export class FloatListingDto {
-  @ApiProperty({ enum: MarketId })
-  market!: MarketId;
+  @ApiProperty({ enum: [...Object.values(MarketId), 'csfloat'] })
+  market!: MarketId | 'csfloat';
 
   @ApiProperty({ description: 'Cents' })
   price!: number;
@@ -68,12 +68,44 @@ export class FloatSourceDto {
   total!: number;
 }
 
+export class SteamListingDto {
+  id!: string;
+  priceLabel!: string;
+
+  @ApiProperty({ nullable: true })
+  float!: number | null;
+
+  @ApiProperty({ nullable: true })
+  paintSeed!: number | null;
+
+  @ApiProperty({ nullable: true })
+  phase!: string | null;
+
+  url!: string;
+}
+
+export class SteamSourceDto {
+  @ApiProperty({ enum: SourceStatus })
+  status!: SourceStatus;
+
+  @ApiProperty({ type: [SteamListingDto] })
+  listings!: SteamListingDto[];
+
+  total!: number;
+}
+
 export class FloatSearchDto {
   @ApiProperty({ type: FloatSourceDto })
   dmarket!: FloatSourceDto;
 
   @ApiProperty({ type: FloatSourceDto })
   whiteMarket!: FloatSourceDto;
+
+  @ApiProperty({ type: FloatSourceDto })
+  csfloat!: FloatSourceDto;
+
+  @ApiProperty({ type: SteamSourceDto })
+  steam!: SteamSourceDto;
 
   @ApiProperty({
     type: FloatListingDto,
