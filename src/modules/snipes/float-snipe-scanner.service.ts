@@ -9,13 +9,21 @@ import {
 import { DiskCache } from '../../common/cache/disk-cache';
 import { wait } from '../../common/http/fetch-json';
 import { appConfig, syncConfig, type AppConfig, type SyncConfig } from '../../config/app.config';
-import { findSnipes, type FloatSnipe, type SnipeCandidate } from '../../domain/float-snipes';
+import {
+  findSnipes,
+  type DepthOrder,
+  type FloatSnipe,
+  type SnipeCandidate,
+} from '../../domain/float-snipes';
 import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
 import { PriceBoardService, type PricedItem } from '../prices/price-board.service';
+import { WhiteMarketPartnerClient } from '../white-market/white-market-partner.client';
 
 const CACHE_KEY = 'float-snipes';
 const HAS_WEAR = /\((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/;
 const MIN_PRICE_CENTS = 50;
+/** Cheapest white.market listings compared with DMarket orders per skin. */
+const WHITE_MARKET_LISTINGS = 50;
 /** Finds disappear fast, so items that had one are looked at again much sooner. */
 const HOT_REFRESH_MS = 10 * 60_000;
 const IDLE_PAUSE_MS = 60_000;
@@ -60,6 +68,7 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     @Inject(syncConfig.KEY) private readonly sync: SyncConfig,
     private readonly board: PriceBoardService,
     private readonly depth: DmarketDepthClient,
+    private readonly whiteMarketPartner: WhiteMarketPartnerClient,
   ) {
     this.cache = new DiskCache(app.cacheDir);
   }
@@ -124,21 +133,66 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
 
   private async scan(name: string): Promise<FloatSnipe[]> {
     const { offers, orders } = await this.depth.fetch(name, 'background');
-    const whiteMarket = this.board.whiteMarketPrice(name);
     const candidates: SnipeCandidate[] = offers.map((offer) => ({ ...offer, source: 'dmarket' }));
 
-    if (whiteMarket?.cheapestFloat != null) {
-      // Pattern and phase of that listing are unknown, so only float orders can match it.
-      candidates.push({
-        source: 'whiteMarket',
-        price: whiteMarket.price,
-        float: whiteMarket.cheapestFloat,
-        paintSeed: null,
-        phase: null,
-      });
-    }
+    candidates.push(...(await this.whiteMarketCandidates(name, orders)));
 
     return findSnipes(candidates, orders);
+  }
+
+  /**
+   * With the partner key: live white.market listings with their floats and own
+   * pages, fetched only when some DMarket order pays more than the cheapest one.
+   * Without it: the cheapest listing from the public price list, which can be stale.
+   */
+  private async whiteMarketCandidates(
+    name: string,
+    orders: DepthOrder[],
+  ): Promise<SnipeCandidate[]> {
+    const cheapest = this.board.whiteMarketPrice(name);
+    // Pattern and phase of white.market listings are not read, so only float orders can match.
+    const floatOrders = orders.filter((order) => order.paintSeed === null && order.phase === null);
+    const bestOrder = Math.max(0, ...floatOrders.map((order) => order.price));
+
+    if (!cheapest || bestOrder <= cheapest.price) {
+      return [];
+    }
+
+    if (this.whiteMarketPartner.isEnabled) {
+      try {
+        const listings = await this.whiteMarketPartner.searchListings({
+          name,
+          priceTo: bestOrder,
+          limit: WHITE_MARKET_LISTINGS,
+        });
+
+        return listings
+          .filter((listing) => listing.float !== null)
+          .map((listing) => ({
+            source: 'whiteMarket',
+            price: listing.price,
+            float: Number(listing.float),
+            paintSeed: null,
+            phase: null,
+            listingUrl: listing.url,
+          }));
+      } catch (error) {
+        this.logger.warn(`white.market listings for "${name}" failed: ${String(error)}`);
+        return [];
+      }
+    }
+
+    return cheapest.cheapestFloat === null
+      ? []
+      : [
+          {
+            source: 'whiteMarket',
+            price: cheapest.price,
+            float: cheapest.cheapestFloat,
+            paintSeed: null,
+            phase: null,
+          },
+        ];
   }
 
   /** Items that had a find come first once they get a little old, then everything else. */

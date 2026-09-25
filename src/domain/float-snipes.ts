@@ -36,6 +36,8 @@ export interface FloatSnipe {
   orderFloatPart: string | null;
   orderPaintSeed: number | null;
   orderPhase: string | null;
+  /** Direct link to the listing when the market gives one. */
+  listingUrl?: string | null;
 }
 
 const MAX_SNIPES_PER_ITEM = 5;
@@ -63,6 +65,7 @@ export const orderAccepts = (order: DepthOrder, offer: DepthOffer): boolean => {
 /** A listing to check, from either market. */
 export interface SnipeCandidate extends DepthOffer {
   source: SnipeSource;
+  listingUrl?: string | null;
 }
 
 /**
@@ -99,6 +102,7 @@ export const findSnipes = (candidates: SnipeCandidate[], orders: DepthOrder[]): 
       orderFloatPart: order.floatPart,
       orderPaintSeed: order.paintSeed,
       orderPhase: order.phase,
+      listingUrl: offer.listingUrl ?? null,
     });
   }
 

@@ -85,7 +85,7 @@ export class SnipesController {
           checkedAt: new Date(result.checkedAt).toISOString(),
           listingUrl:
             snipe.source === 'whiteMarket'
-              ? (this.board.whiteMarketPrice(name)?.url ?? dmarketItemUrl(name))
+              ? (snipe.listingUrl ?? this.board.whiteMarketPrice(name)?.url ?? dmarketItemUrl(name))
               : dmarketListingUrl(name, snipe.float),
         });
       }

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { DMARKET_FLOAT_PARTS, inRange, overlaps } from '../../domain/float';
-import { MarketId, dmarketListingUrl, whiteMarketItemUrl } from '../../domain/market-links';
+import { MarketId, dmarketListingUrl } from '../../domain/market-links';
 import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
 import { SourceStatus } from '../listings/dto/listings.dto';
 import { PriceBoardService } from '../prices/price-board.service';
@@ -41,6 +41,7 @@ export class FloatSearchService {
     ]);
 
     const exported = this.board.whiteMarketPrice(name);
+    const live = await this.liveWhiteMarketCheapest(name);
     const item = this.board.find(name);
     const anyFloat = [
       item?.whiteMarket?.listings ? item.whiteMarket.price : null,
@@ -50,18 +51,43 @@ export class FloatSearchService {
     return {
       dmarket: dmarket.source,
       whiteMarket,
-      whiteMarketCheapest: exported
-        ? {
-            market: MarketId.WhiteMarket,
-            price: exported.price,
-            float: exported.cheapestFloat,
-            paintSeed: null,
-            url: exported.url,
-          }
-        : null,
+      whiteMarketCheapest:
+        live ??
+        (exported
+          ? {
+              market: MarketId.WhiteMarket,
+              price: exported.price,
+              float: exported.cheapestFloat,
+              paintSeed: null,
+              url: exported.url,
+            }
+          : null),
       orders: dmarket.orders,
       cheapestAnyFloat: anyFloat.length > 0 ? Math.min(...anyFloat) : null,
     };
+  }
+
+  /** The real cheapest white.market listing right now: the public price list can lag behind. */
+  private async liveWhiteMarketCheapest(name: string): Promise<FloatListingDto | null> {
+    if (!this.whiteMarket.isEnabled) {
+      return null;
+    }
+
+    try {
+      const [cheapest] = await this.whiteMarket.searchListings({ name, limit: 1 });
+
+      return cheapest
+        ? {
+            market: MarketId.WhiteMarket,
+            price: cheapest.price,
+            float: cheapest.float === null ? null : Number(cheapest.float),
+            paintSeed: null,
+            url: cheapest.url,
+          }
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   private async searchDmarket(
@@ -128,7 +154,7 @@ export class FloatSearchService {
         price: listing.price,
         float: listing.float === null ? null : Number(listing.float),
         paintSeed: null,
-        url: whiteMarketItemUrl(name),
+        url: listing.url,
       }));
 
       return { status: SourceStatus.Ok, listings: mapped, total: mapped.length };

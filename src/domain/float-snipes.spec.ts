@@ -93,12 +93,22 @@ describe('findSnipes', () => {
 
   it('lets a white.market listing compete for the same orders', () => {
     const snipes = findSnipes(
-      [offer(1500, 0.19, { source: 'whiteMarket', paintSeed: null }), offer(1600, 0.19)],
+      [
+        offer(1500, 0.19, {
+          source: 'whiteMarket',
+          paintSeed: null,
+          listingUrl: 'https://white.market/item/x',
+        }),
+        offer(1600, 0.19),
+      ],
       [order(4687, { floatPart: 'FT-1' })],
     );
 
     expect(snipes).toHaveLength(1);
-    expect(snipes[0].source).toBe('whiteMarket');
+    expect(snipes[0]).toMatchObject({
+      source: 'whiteMarket',
+      listingUrl: 'https://white.market/item/x',
+    });
   });
 
   it('counts the DMarket seller fee in the profit', () => {
