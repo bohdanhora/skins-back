@@ -6,6 +6,10 @@ export enum MarketId {
 export const whiteMarketItemUrl = (name: string): string =>
   `https://white.market/item?appId=730&nameHash=${encodeURIComponent(name)}`;
 
+/** Every white.market listing has its own page, addressed by the product slug. */
+export const whiteMarketListingUrl = (slug: string): string =>
+  `https://white.market/item/${encodeURIComponent(slug)}`;
+
 export const dmarketItemUrl = (name: string): string =>
   `https://dmarket.com/ingame-items/item-list/csgo-skins?title=${encodeURIComponent(name)}`;
 

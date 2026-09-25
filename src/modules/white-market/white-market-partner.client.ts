@@ -8,7 +8,7 @@ import {
   withoutStickerPrefix,
   type Listing,
 } from '../../domain/listing';
-import { MarketId, whiteMarketItemUrl } from '../../domain/market-links';
+import { MarketId, whiteMarketItemUrl, whiteMarketListingUrl } from '../../domain/market-links';
 
 const GRAPHQL_URL = 'https://api.white.market/graphql/partner';
 /** Access tokens live 24 hours; renew a little earlier. */
@@ -23,6 +23,7 @@ query Listings($search: MarketProductSearchInput, $first: Int) {
     edges {
       node {
         id
+        slug
         price { value }
         item {
           ... on CSGOInventoryItem {
@@ -52,6 +53,7 @@ interface GraphqlResponse<T> {
 
 interface RawProduct {
   id: string;
+  slug?: string | null;
   price: { value: string };
   item: {
     float?: string | null;
@@ -160,7 +162,7 @@ export class WhiteMarketPartnerClient {
           name: toStickerItemName(sticker.title || sticker.name),
           image: sticker.icon,
         })),
-      url: whiteMarketItemUrl(name),
+      url: node.slug ? whiteMarketListingUrl(node.slug) : whiteMarketItemUrl(name),
     };
   }
 
