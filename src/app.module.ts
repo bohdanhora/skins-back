@@ -7,6 +7,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import {
   appConfig,
+  csfloatConfig,
   dmarketConfig,
   syncConfig,
   whiteMarketConfig,
@@ -27,7 +28,7 @@ const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
       isGlobal: true,
       cache: true,
       validate: validateEnvironment,
-      load: [appConfig, syncConfig, whiteMarketConfig, dmarketConfig],
+      load: [appConfig, syncConfig, whiteMarketConfig, dmarketConfig, csfloatConfig],
     }),
     LoggerModule.forRootAsync({
       inject: [ConfigService],
@@ -37,11 +38,9 @@ const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
         return {
           pinoHttp: {
             level: config.logLevel,
-            // Pretty output only in a terminal; hosts such as Railway get one JSON line per event.
             transport:
               !config.isProduction && process.stdout.isTTY ? { target: 'pino-pretty' } : undefined,
             autoLogging: { ignore: (request) => request.url === '/api/health' },
-            // One short line per request instead of every header.
             serializers: {
               req: (request: { method?: string; url?: string }) => ({
                 method: request.method,

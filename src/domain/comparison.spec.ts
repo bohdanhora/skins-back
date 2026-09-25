@@ -10,7 +10,7 @@ const quote = (price: number | null, extra: Partial<MarketQuote> = {}): MarketQu
   ...extra,
 });
 
-const fees = { whiteMarket: 0.05, dmarket: 0.05 };
+const fees = { whiteMarket: 0.05, dmarket: 0.05, csfloat: 0.02 };
 
 describe('findPriceGap', () => {
   it('points at the cheaper market and measures the gap against the higher price', () => {
@@ -34,7 +34,7 @@ describe('findPriceGap', () => {
 
 describe('findListingFlip', () => {
   it('lists one cent under the other market and pays its seller fee', () => {
-    const flip = findListingFlip(quote(1000), quote(1300), fees);
+    const flip = findListingFlip(quote(1000), quote(1300), null, fees);
 
     expect(flip).toMatchObject({
       buyOn: MarketId.WhiteMarket,
@@ -46,7 +46,15 @@ describe('findListingFlip', () => {
   });
 
   it('reports a loss when fees eat the gap', () => {
-    expect(findListingFlip(quote(1000), quote(1020), fees)!.profit).toBeLessThan(0);
+    expect(findListingFlip(quote(1000), quote(1020), null, fees)!.profit).toBeLessThan(0);
+  });
+
+  it('compares CSFloat with the other markets', () => {
+    expect(findListingFlip(quote(1300), quote(1200), quote(900), fees)).toMatchObject({
+      buyOn: MarketId.Csfloat,
+      sellOn: MarketId.WhiteMarket,
+      buyPrice: 900,
+    });
   });
 });
 

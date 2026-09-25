@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { type Listing } from '../../domain/listing';
 import { compareStickerDeals, evaluateStickerDeal } from '../../domain/sticker-deals';
 import { DmarketTradingClient } from '../dmarket/dmarket-trading.client';
+import { CsfloatClient } from '../csfloat/csfloat.client';
 import { ItemIndexService } from '../items/item-index.service';
 import { WhiteMarketPartnerClient } from '../white-market/white-market-partner.client';
 import {
@@ -15,9 +16,7 @@ import {
 export type ListingSort = 'price' | 'deal' | 'overpay';
 
 export interface ListingSearch {
-  /** Exact market name. */
   name?: string;
-  /** Any part of a name, e.g. "AK-47" or "Redline". Ignored when `name` is set. */
   item?: string;
   stickers?: string[];
   priceFrom?: number;
@@ -26,7 +25,6 @@ export interface ListingSearch {
   limit: number;
 }
 
-/** What each market client receives once the item text is understood. */
 interface SourceSearch {
   name?: string;
   namePrefix?: string;
@@ -42,10 +40,8 @@ interface Source {
   searchListings: (search: SourceSearch) => Promise<Listing[]>;
 }
 
-/** Both markets answer at most 100 listings per request: rank the whole page, not just the first few. */
 const RANKING_POOL = 100;
 
-/** Individual listings with float and stickers. Needs the optional keys of each market. */
 @Injectable()
 export class ListingsService {
   private readonly logger = new Logger(ListingsService.name);
@@ -53,32 +49,43 @@ export class ListingsService {
   constructor(
     private readonly whiteMarket: WhiteMarketPartnerClient,
     private readonly dmarket: DmarketTradingClient,
+    private readonly csfloat: CsfloatClient,
     private readonly index: ItemIndexService,
   ) {}
 
   async search(search: ListingSearch): Promise<ListingsDto> {
     const sourceSearch = this.understand(search);
-    const [whiteMarket, dmarket] = await Promise.all([
+    const [whiteMarket, dmarket, csfloat] = await Promise.all([
       this.collect('white.market', this.whiteMarket, sourceSearch),
       this.collect('DMarket', this.dmarket, sourceSearch),
+      this.collect('CSFloat', this.csfloatSource(), sourceSearch),
     ]);
     const needle = sourceSearch.name ? null : search.item?.trim().toLowerCase();
     const wanted = search.stickers ?? [];
 
-    const listings = [...whiteMarket.listings, ...dmarket.listings]
+    const listings = [...whiteMarket.listings, ...dmarket.listings, ...csfloat.listings]
       .filter((listing) => !needle || listing.name.toLowerCase().includes(needle))
       .map((listing) => this.toView(listing, wanted))
       .sort(this.comparator(search.sort ?? 'price'))
       .slice(0, search.limit);
 
-    return { sources: { whiteMarket: whiteMarket.state, dmarket: dmarket.state }, listings };
+    return {
+      sources: {
+        whiteMarket: whiteMarket.state,
+        dmarket: dmarket.state,
+        csfloat: csfloat.state,
+      },
+      listings,
+    };
   }
 
-  /**
-   * An exact name is passed as is. Free text becomes a title prefix for DMarket
-   * when some item name starts with it; white.market gets it as a loose search.
-   * Either way the result is filtered by the text afterwards.
-   */
+  private csfloatSource(): Source {
+    return {
+      isEnabled: this.csfloat.isEnabled,
+      searchListings: (search) => this.csfloat.searchMarketListings(search),
+    };
+  }
+
   private understand(search: ListingSearch): SourceSearch {
     const base = {
       stickers: search.stickers,

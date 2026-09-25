@@ -23,8 +23,8 @@ export class ItemsService {
 
   list(query: ItemsQueryDto): ItemsPageDto {
     const page = queryItems(this.index.all(), query, (name) => this.sales.get(name));
-    const { whiteMarket, dmarket } = this.board.state;
-    const stamps = [whiteMarket.updatedAt, dmarket.updatedAt].filter(
+    const { whiteMarket, dmarket, csfloat } = this.board.state;
+    const stamps = [whiteMarket.updatedAt, dmarket.updatedAt, csfloat.updatedAt].filter(
       (stamp): stamp is string => stamp !== null,
     );
 
@@ -33,14 +33,14 @@ export class ItemsService {
 
   async get(
     name: string,
-    fees: Pick<ItemsQueryDto, 'feeWhiteMarket' | 'feeDmarket'>,
+    fees: Pick<ItemsQueryDto, 'feeWhiteMarket' | 'feeDmarket' | 'feeCsfloat'>,
   ): Promise<ItemViewDto> {
     await this.board.refreshItem(name).catch(() => undefined);
 
     const item = this.index.find(name);
 
     if (!item) {
-      throw new NotFoundException('Item is not sold on either market right now');
+      throw new NotFoundException('Item is not sold on any market right now');
     }
 
     return toView(item, feesFrom(fees), this.sales.get(name));
@@ -54,5 +54,9 @@ export class ItemsService {
 
   listingsFor(name: string): Promise<ListingsDto> {
     return this.listings.search({ name, limit: ITEM_LISTINGS });
+  }
+
+  facets(): { collections: { name: string; image: string | null }[] } {
+    return { collections: this.index.collections() };
   }
 }

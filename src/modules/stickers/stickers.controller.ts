@@ -80,7 +80,7 @@ export class StickersController {
   constructor(private readonly listings: ListingsService) {}
 
   @Get('skins')
-  @ApiOperation({ summary: 'Skins for sale with the chosen stickers applied, on both markets' })
+  @ApiOperation({ summary: 'Skins for sale with the chosen stickers applied, on all markets' })
   @ApiOkResponse({ type: ListingsDto })
   skins(@Query() query: SkinsWithStickersQueryDto): Promise<ListingsDto> {
     return this.listings.search({

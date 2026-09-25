@@ -3,6 +3,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -13,29 +14,41 @@ import {
 } from 'class-validator';
 
 import { ItemCategory } from '../../../domain/categories';
+import { MARKET_PHASES, type MarketPhase } from '../../../domain/market-variant';
+import { MarketId } from '../../../domain/market-links';
 
 export enum DealMode {
-  /** Any item, no comparison required. */
   All = 'all',
-  /** Items sold on both markets: where it is cheaper and by how much. */
   Gap = 'gap',
-  /** Buy on the cheaper market, list on the other one. */
   Flip = 'flip',
-  /** Buy on white.market, sell into a DMarket buy order at once. */
   Instant = 'instant',
-  /** Cheaper right now than it has been selling for lately. */
   Top = 'top',
 }
 
 export enum ItemSort {
   Benefit = 'benefit',
   BenefitAmount = 'benefitAmount',
-  /** Buy orders closest to the price first: the safest buys. */
   BidCover = 'bidCover',
   Popular = 'popular',
   PriceAsc = 'priceAsc',
   PriceDesc = 'priceDesc',
   Name = 'name',
+  Sales8w = 'sales8w',
+  Score = 'score',
+}
+
+export enum ItemWear {
+  FactoryNew = 'FN',
+  MinimalWear = 'MW',
+  FieldTested = 'FT',
+  WellWorn = 'WW',
+  BattleScarred = 'BS',
+}
+
+export enum ItemEdition {
+  Normal = 'normal',
+  StatTrak = 'stattrak',
+  Souvenir = 'souvenir',
 }
 
 const toBoolean = ({ value }: { value: unknown }): unknown =>
@@ -55,6 +68,32 @@ export class ItemsQueryDto {
   @IsOptional()
   @IsEnum(ItemCategory)
   category?: ItemCategory;
+
+  @ApiPropertyOptional({ enum: ItemWear })
+  @IsOptional()
+  @IsEnum(ItemWear)
+  wear?: ItemWear;
+
+  @ApiPropertyOptional({ enum: ItemEdition })
+  @IsOptional()
+  @IsEnum(ItemEdition)
+  edition?: ItemEdition;
+
+  @ApiPropertyOptional({ enum: MARKET_PHASES })
+  @IsOptional()
+  @IsIn(MARKET_PHASES)
+  phase?: MarketPhase;
+
+  @ApiPropertyOptional({ description: 'Exact collection name' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  collection?: string;
+
+  @ApiPropertyOptional({ enum: MarketId, description: 'Only items cheapest on this market' })
+  @IsOptional()
+  @IsEnum(MarketId)
+  cheapestOn?: MarketId;
 
   @ApiPropertyOptional({ enum: DealMode, default: DealMode.All })
   @IsOptional()
@@ -96,6 +135,22 @@ export class ItemsQueryDto {
   @Max(100_000)
   minWeekSales = 0;
 
+  @ApiPropertyOptional({ description: 'Sold on DMarket in the last 8 weeks, at least', default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1_000_000)
+  minEightWeekSales = 0;
+
+  @ApiPropertyOptional({ description: 'Deal benefit or discount, at least, percent', default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  minBenefitPercent = 0;
+
   @ApiPropertyOptional({
     description: 'Best buy order as % of the price, at least (top offers)',
     default: 0,
@@ -128,6 +183,14 @@ export class ItemsQueryDto {
   @Min(0)
   @Max(50)
   feeDmarket = DEFAULT_FEE_PERCENT;
+
+  @ApiPropertyOptional({ description: 'CSFloat seller fee, %', default: 2 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  feeCsfloat = 2;
 
   @ApiPropertyOptional({ description: 'Exact item names, for favorites', type: [String] })
   @IsOptional()

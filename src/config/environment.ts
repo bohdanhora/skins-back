@@ -77,6 +77,10 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   DMARKET_SECRET_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  CSFLOAT_API_KEY?: string;
 }
 
 export const validateEnvironment = (raw: Record<string, unknown>): EnvironmentVariables => {

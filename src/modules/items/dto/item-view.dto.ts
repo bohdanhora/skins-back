@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 import { ItemCategory } from '../../../domain/categories';
+import { MARKET_PHASES, type MarketPhase } from '../../../domain/market-variant';
 import { MarketId } from '../../../domain/market-links';
 
 export class MarketQuoteDto {
@@ -51,10 +52,18 @@ export class SalesStatsDto {
 
   @ApiProperty({ description: 'Sold on DMarket in the last 7 days' })
   weekSales!: number;
+  @ApiPropertyOptional()
+  eightWeekSales?: number;
+
+  @ApiPropertyOptional()
+  eightWeekAverage?: number;
+
+  @ApiProperty({ nullable: true })
+  trendPercent?: number | null;
 }
 
 export class TopOfferDto {
-  @ApiProperty({ description: 'Cheapest listing on either market, cents' })
+  @ApiProperty({ description: 'Cheapest listing across all markets, cents' })
   price!: number;
 
   @ApiProperty({
@@ -86,11 +95,21 @@ export class ItemViewDto {
   @ApiProperty({ enum: ItemCategory })
   category!: ItemCategory;
 
+  @ApiPropertyOptional({ enum: MARKET_PHASES, nullable: true })
+  phase!: MarketPhase | null;
+
+  collections!: { name: string; image: string | null }[];
+
+  dealScore!: { score: number; confidence: 'high' | 'medium' | 'low' } | null;
+
   @ApiProperty({ type: MarketQuoteDto, nullable: true })
   whiteMarket!: MarketQuoteDto | null;
 
   @ApiProperty({ type: MarketQuoteDto, nullable: true })
   dmarket!: MarketQuoteDto | null;
+
+  @ApiProperty({ type: MarketQuoteDto, nullable: true })
+  csfloat!: MarketQuoteDto | null;
 
   @ApiProperty({ type: PriceGapDto, nullable: true })
   gap!: PriceGapDto | null;

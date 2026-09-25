@@ -37,7 +37,7 @@ async function bootstrap(): Promise<void> {
     new DocumentBuilder()
       .setTitle('Skins API')
       .setDescription(
-        'CS2 price comparison between white.market and DMarket. Money is in US cents unless a field says USD.',
+        'CS2 price comparison across white.market, DMarket and CSFloat. Money is in US cents unless a field says USD.',
       )
       .setVersion('0.1.0')
       .build(),

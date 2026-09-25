@@ -17,11 +17,8 @@ export interface AppConfig {
 export interface SyncConfig {
   pricesRefreshMs: number;
   catalogRefreshMs: number;
-  /** How old a sales summary may get before the item is checked again. */
   salesRefreshMs: number;
-  /** How old a float scan may get before the item is checked again. */
   floatRefreshMs: number;
-  /** Shared budget for every request to DMarket, background scans included. */
   dmarketRequestsPerSecond: number;
 }
 
@@ -34,6 +31,11 @@ export interface DmarketConfig {
   publicKey: string;
   secretKey: string;
   isTradingEnabled: boolean;
+}
+
+export interface CsfloatConfig {
+  apiKey: string;
+  isEnabled: boolean;
 }
 
 const readSecret = (name: string): string => (process.env[name] ?? '').trim();
@@ -77,4 +79,10 @@ export const dmarketConfig = registerAs<DmarketConfig>('dmarket', () => {
     secretKey,
     isTradingEnabled: publicKey.length > 0 && secretKey.length > 0,
   };
+});
+
+export const csfloatConfig = registerAs<CsfloatConfig>('csfloat', () => {
+  const apiKey = readSecret('CSFLOAT_API_KEY');
+
+  return { apiKey, isEnabled: apiKey.length > 0 };
 });

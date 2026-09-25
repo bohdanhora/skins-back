@@ -10,16 +10,15 @@ import { DiskCache } from '../../common/cache/disk-cache';
 import { wait } from '../../common/http/fetch-json';
 import { appConfig, syncConfig, type AppConfig, type SyncConfig } from '../../config/app.config';
 import { type MarketQuote } from '../../domain/comparison';
+import { parseVariantName } from '../../domain/market-variant';
 import { summarizeSales, type DailySales, type SalesStats } from '../../domain/sales';
 import { DmarketSalesClient } from '../dmarket/dmarket-sales.client';
 import { PriceBoardService, type PricedItem } from './price-board.service';
 
 const CACHE_KEY = 'sales';
-/** Below this the chart is mostly noise and not worth a request. */
 const MIN_PRICE_CENTS = 50;
 const MIN_LISTINGS = 5;
 const IDLE_PAUSE_MS = 60_000;
-/** Prices are not loaded yet right after start. */
 const WARMUP_PAUSE_MS = 5_000;
 const ERROR_PAUSE_MS = 5_000;
 const SAVE_EVERY = 250;
@@ -40,7 +39,7 @@ const listed = (quote: MarketQuote | null): number | null =>
   quote && quote.listings > 0 ? quote.price : null;
 
 const cheapest = (item: PricedItem): number | null => {
-  const prices = [listed(item.whiteMarket), listed(item.dmarket)].filter(
+  const prices = [listed(item.whiteMarket), listed(item.dmarket), listed(item.csfloat)].filter(
     (price): price is number => price !== null,
   );
 
@@ -48,12 +47,8 @@ const cheapest = (item: PricedItem): number | null => {
 };
 
 const supply = (item: PricedItem): number =>
-  (item.whiteMarket?.listings ?? 0) + (item.dmarket?.listings ?? 0);
+  (item.whiteMarket?.listings ?? 0) + (item.dmarket?.listings ?? 0) + (item.csfloat?.listings ?? 0);
 
-/**
- * Walks through liquid items one by one and keeps a short summary of their
- * recent DMarket sales. Slow on purpose: a full pass takes tens of minutes.
- */
 @Injectable()
 export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(SalesHistoryService.name);
@@ -87,7 +82,6 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
     };
   }
 
-  /** Full daily chart for one item, fetched on demand and kept for a while. */
   async chart(name: string): Promise<DailySales[]> {
     const cached = this.charts.get(name);
 
@@ -142,7 +136,6 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
           await this.persist();
         }
       } catch (error) {
-        // Remember the attempt so one broken title cannot stall the whole pass.
         this.stats.set(next, { stats: this.get(next), fetchedAt: Date.now() });
         this.logger.warn(`Sales history for "${next}" failed: ${String(error)}`);
         await wait(ERROR_PAUSE_MS);
@@ -150,7 +143,6 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
     }
   }
 
-  /** The most traded item whose summary is missing or too old. */
   private nextStale(): string | undefined {
     const staleBefore = Date.now() - this.sync.salesRefreshMs;
 
@@ -171,7 +163,12 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
       .filter((item) => {
         const price = cheapest(item);
 
-        return price !== null && price >= MIN_PRICE_CENTS && supply(item) >= MIN_LISTINGS;
+        return (
+          !parseVariantName(item.name).phase &&
+          price !== null &&
+          price >= MIN_PRICE_CENTS &&
+          supply(item) >= MIN_LISTINGS
+        );
       })
       .sort((left, right) => supply(right) - supply(left))
       .map((item) => item.name);

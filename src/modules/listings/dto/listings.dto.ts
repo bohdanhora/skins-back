@@ -4,7 +4,6 @@ import { MarketId } from '../../../domain/market-links';
 
 export enum SourceStatus {
   Ok = 'ok',
-  /** The optional API key for this market is not set. */
   NoKeys = 'noKeys',
   Error = 'error',
 }
@@ -73,6 +72,9 @@ export class ListingSourcesDto {
 
   @ApiProperty({ type: SourceStateDto })
   dmarket!: SourceStateDto;
+
+  @ApiProperty({ type: SourceStateDto })
+  csfloat!: SourceStateDto;
 }
 
 export class ListingsDto {
