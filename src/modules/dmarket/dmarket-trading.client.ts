@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { fetchJson } from '../../common/http/fetch-json';
 import { dmarketConfig, type DmarketConfig } from '../../config/app.config';
-import { toStickerItemName, type Listing } from '../../domain/listing';
+import { toStickerItemName, withoutStickerPrefix, type Listing } from '../../domain/listing';
 import { MarketId, dmarketListingUrl } from '../../domain/market-links';
 import { DmarketRateLimiter } from './dmarket-rate-limiter';
 import { DmarketSigner } from './dmarket-signer';
@@ -26,7 +26,10 @@ interface RawOffer {
 }
 
 export interface DmarketListingSearch {
+  /** Exact market name. */
   name?: string;
+  /** The start of a name, e.g. "AK-47" or "AK-47 | Redline": every matching item. */
+  namePrefix?: string;
   stickers?: string[];
   priceFrom?: number;
   priceTo?: number;
@@ -54,6 +57,21 @@ export class DmarketTradingClient {
   }
 
   async searchListings(search: DmarketListingSearch): Promise<Listing[]> {
+    const offers = await this.fetchOffers(search, (name) => name);
+
+    // The site filters by the plain sticker name, but the stored value may be lowercase.
+    // An empty answer for a sticker search gets one retry in lowercase.
+    if (offers.length === 0 && search.stickers?.length) {
+      return this.fetchOffers(search, (name) => name.toLowerCase());
+    }
+
+    return offers;
+  }
+
+  private async fetchOffers(
+    search: DmarketListingSearch,
+    stickerCase: (name: string) => string,
+  ): Promise<Listing[]> {
     const query = new URLSearchParams({
       gameId: CS2_GAME_ID,
       limit: String(Math.min(search.limit, MAX_LIMIT)),
@@ -62,15 +80,17 @@ export class DmarketTradingClient {
       withImages: 'true',
     });
 
-    if (search.name) {
-      query.set('title', search.name);
+    const title = search.name ?? search.namePrefix;
+
+    if (title) {
+      query.set('title', title);
     }
 
     if (search.stickers?.length) {
       query.set(
         'treeFilters',
         search.stickers
-          .map((sticker) => `sticker[]=${filterValue(toStickerItemName(sticker))}`)
+          .map((sticker) => `sticker[]=${filterValue(stickerCase(withoutStickerPrefix(sticker)))}`)
           .join(','),
       );
     }
