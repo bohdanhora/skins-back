@@ -37,8 +37,18 @@ const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
         return {
           pinoHttp: {
             level: config.logLevel,
-            transport: config.isProduction ? undefined : { target: 'pino-pretty' },
+            // Pretty output only in a terminal; hosts such as Railway get one JSON line per event.
+            transport:
+              !config.isProduction && process.stdout.isTTY ? { target: 'pino-pretty' } : undefined,
             autoLogging: { ignore: (request) => request.url === '/api/health' },
+            // One short line per request instead of every header.
+            serializers: {
+              req: (request: { method?: string; url?: string }) => ({
+                method: request.method,
+                url: request.url,
+              }),
+              res: (response: { statusCode?: number }) => ({ statusCode: response.statusCode }),
+            },
           },
         };
       },
