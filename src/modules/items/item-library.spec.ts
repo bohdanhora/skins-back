@@ -33,6 +33,19 @@ describe('item library', () => {
     ]);
   });
 
+  it('orders skins from the most expensive to the cheapest', () => {
+    const library = buildItemLibrary(
+      [
+        item('AK-47 | Slate (Field-Tested)', ItemCategory.Rifle, 500),
+        item('AK-47 | Redline (Field-Tested)', ItemCategory.Rifle, 2500),
+        item('AK-47 | Asiimov (Field-Tested)', ItemCategory.Rifle, 12000),
+      ],
+      { category: ItemCategory.Rifle, weapon: 'AK-47' },
+    );
+
+    expect(library.skins.map((entry) => entry.value)).toEqual(['Asiimov', 'Redline', 'Slate']);
+  });
+
   it('returns exact variants for opening search tools', () => {
     const library = buildItemLibrary(rows, {
       category: ItemCategory.Knife,

@@ -57,6 +57,7 @@ const toRows = (items: readonly IndexedItem[]): LibraryRow[] =>
 const optionList = (
   rows: LibraryRow[],
   valueOf: (row: LibraryRow) => string,
+  sort: 'name' | 'price' = 'name',
 ): { value: string; image: string | null; count: number; price: number | null }[] => {
   const grouped = new Map<string, LibraryRow[]>();
 
@@ -76,7 +77,12 @@ const optionList = (
       ...option,
       price: Number.isFinite(option.price) ? option.price : null,
     }))
-    .sort((left, right) => left.value.localeCompare(right.value));
+    .sort((left, right) =>
+      sort === 'price'
+        ? (right.price ?? -Infinity) - (left.price ?? -Infinity) ||
+          left.value.localeCompare(right.value)
+        : left.value.localeCompare(right.value),
+    );
 };
 
 export const buildItemLibrary = (
@@ -99,7 +105,7 @@ export const buildItemLibrary = (
   return {
     categories,
     weapons: optionList(categoryRows, (row) => row.weapon),
-    skins: optionList(weaponRows, (row) => row.skin),
+    skins: optionList(weaponRows, (row) => row.skin, 'price'),
     variants: skinRows
       .map((row) => ({
         name: row.item.name,
