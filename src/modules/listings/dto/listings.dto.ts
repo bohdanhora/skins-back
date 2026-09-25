@@ -49,6 +49,21 @@ export class ListingViewDto {
   @ApiProperty({ description: 'What the applied stickers cost on their own, cents' })
   stickersValue!: number;
 
+  @ApiProperty({ nullable: true, description: 'Cheapest listing of the same item, cents' })
+  basePrice!: number | null;
+
+  @ApiProperty({ nullable: true, description: 'Paid above the base price, cents' })
+  overpay!: number | null;
+
+  @ApiProperty({ description: 'Price of the searched stickers on this listing, cents' })
+  wantedValue!: number;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Overpay as a share of the searched stickers price, lower is better',
+  })
+  overpayShare!: number | null;
+
   url!: string;
 }
 

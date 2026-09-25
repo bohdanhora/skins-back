@@ -4,6 +4,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -14,9 +15,10 @@ import {
 } from 'class-validator';
 
 import { ListingsDto } from '../listings/dto/listings.dto';
-import { ListingsService } from '../listings/listings.service';
+import { ListingsService, type ListingSort } from '../listings/listings.service';
 
 const MAX_STICKERS = 5;
+const SORTS: ListingSort[] = ['deal', 'overpay', 'price'];
 
 class SkinsWithStickersQueryDto {
   @ApiPropertyOptional({ type: [String], description: 'Sticker names, all must be applied' })
@@ -26,6 +28,25 @@ class SkinsWithStickersQueryDto {
   @ArrayMinSize(1)
   @ArrayMaxSize(MAX_STICKERS)
   stickers!: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'Which item the stickers must be on: an exact name or any part of it, e.g. "AK-47"',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  item?: string;
+
+  @ApiPropertyOptional({
+    enum: SORTS,
+    default: 'deal',
+    description:
+      'deal: smallest overpay for the stickers first; overpay: in dollars; price: cheapest',
+  })
+  @IsOptional()
+  @IsIn(SORTS)
+  sort: ListingSort = 'deal';
 
   @ApiPropertyOptional({ description: 'USD' })
   @IsOptional()
@@ -64,6 +85,8 @@ export class StickersController {
   skins(@Query() query: SkinsWithStickersQueryDto): Promise<ListingsDto> {
     return this.listings.search({
       stickers: query.stickers,
+      item: query.item,
+      sort: query.sort,
       priceFrom: toCents(query.minPrice),
       priceTo: toCents(query.maxPrice),
       limit: query.limit,

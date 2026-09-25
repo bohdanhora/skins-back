@@ -62,7 +62,10 @@ interface RawProduct {
 }
 
 export interface WhiteMarketListingSearch {
+  /** Exact market name. */
   name?: string;
+  /** Part of a name: white.market searches it loosely, callers filter the result. */
+  nameContains?: string;
   stickers?: string[];
   priceFrom?: number;
   priceTo?: number;
@@ -98,6 +101,7 @@ export class WhiteMarketPartnerClient {
         search: {
           appId: 'CSGO',
           ...(search.name ? { nameHash: search.name, nameStrict: true } : {}),
+          ...(!search.name && search.nameContains ? { name: search.nameContains } : {}),
           ...(stickerNames
             ? { csgoStickerNames: stickerNames, csgoStickerNamesOperand: 'AND' }
             : {}),
