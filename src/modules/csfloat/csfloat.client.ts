@@ -34,7 +34,38 @@ export interface RawCsfloatListing {
     paint_index: number;
     icon_url?: string;
     stickers?: { name: string; icon_url?: string }[];
+    blue_gem?: RawBlueGem | null;
   };
+}
+
+interface RawBlueGem {
+  playside_blue?: number;
+  backside_blue?: number;
+}
+
+interface RawCsfloatSale extends RawCsfloatListing {
+  sold_at?: string;
+  reference?: {
+    base_price?: number;
+    predicted_price?: number;
+    sticker_overpay?: { total_price?: number } | null;
+  };
+}
+
+export interface CsfloatBlue {
+  playside: number;
+  backside: number;
+}
+
+export interface CsfloatSale {
+  name: string;
+  price: number;
+  predicted: number;
+  paintSeed: number;
+  float: number;
+  blue: CsfloatBlue | null;
+  stickerValue: number;
+  soldAt: string;
 }
 
 interface RawCsfloatResponse {
@@ -57,6 +88,7 @@ export interface CsfloatPatternListing {
   price: number;
   float: number;
   paintSeed: number;
+  blue: CsfloatBlue | null;
   url: string;
 }
 
@@ -245,8 +277,35 @@ export class CsfloatClient {
         price: row.price,
         float: row.item.float_value,
         paintSeed: row.item.paint_seed,
+        blue: readBlue(row.item.blue_gem),
         url: `https://csfloat.com/item/${encodeURIComponent(row.id)}`,
       }));
+  }
+
+  async fetchRecentSales(name: string): Promise<CsfloatSale[]> {
+    const rows = await fetchJson<RawCsfloatSale[]>(
+      `${HISTORY_URL}/${encodeURIComponent(name)}/sales`,
+      { headers: { Authorization: this.config.apiKey }, retries: 0 },
+    );
+
+    return (Array.isArray(rows) ? rows : []).flatMap((row) => {
+      const predicted = row.reference?.predicted_price ?? row.reference?.base_price;
+
+      return predicted && row.sold_at
+        ? [
+            {
+              name: row.item.market_hash_name,
+              price: row.price,
+              predicted,
+              paintSeed: row.item.paint_seed,
+              float: row.item.float_value,
+              blue: readBlue(row.item.blue_gem),
+              stickerValue: row.reference?.sticker_overpay?.total_price ?? 0,
+              soldAt: row.sold_at,
+            },
+          ]
+        : [];
+    });
   }
 
   async fetchDailySales(name: string): Promise<DailySales[]> {
@@ -309,6 +368,11 @@ const imageUrl = (value?: string): string | null => {
     ? value
     : `https://community.akamai.steamstatic.com/economy/image/${value}`;
 };
+
+const readBlue = (raw: RawBlueGem | null | undefined): CsfloatBlue | null =>
+  raw && typeof raw.playside_blue === 'number' && typeof raw.backside_blue === 'number'
+    ? { playside: raw.playside_blue, backside: raw.backside_blue }
+    : null;
 
 export const unwrapCsfloatListings = (
   response: RawCsfloatListing[] | RawCsfloatResponse,

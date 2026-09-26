@@ -7,6 +7,7 @@ import { PricesModule } from '../prices/prices.module';
 import { WhiteMarketModule } from '../white-market/white-market.module';
 import { SteamModule } from '../steam/steam.module';
 import { BlueGemService } from './blue-gem.service';
+import { BlueValueService } from './blue-value.service';
 import { PatternImagesService } from './pattern-images.service';
 import { FloatSearchService } from './float-search.service';
 import { ItemIndexService } from './item-index.service';
@@ -22,6 +23,7 @@ import { ItemsService } from './items.service';
     ItemsService,
     FloatSearchService,
     BlueGemService,
+    BlueValueService,
     PatternImagesService,
   ],
   exports: [ItemIndexService, ListingsService],

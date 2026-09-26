@@ -20,6 +20,8 @@ import {
 } from './dto/blue-gem.dto';
 import { FloatSearchDto, FloatSearchQueryDto } from './dto/float-search.dto';
 import { BlueGemService } from './blue-gem.service';
+import { BlueValueService } from './blue-value.service';
+import { BlueValueDto, BlueValueQueryDto } from './dto/blue-value.dto';
 import { PatternImagesDto } from './dto/pattern-images.dto';
 import { PatternImagesService } from './pattern-images.service';
 import { FloatSearchService } from './float-search.service';
@@ -39,6 +41,7 @@ export class ItemsController {
     private readonly items: ItemsService,
     private readonly floats: FloatSearchService,
     private readonly blueGems: BlueGemService,
+    private readonly blueValues: BlueValueService,
     private readonly patterns: PatternImagesService,
     private readonly steamMarket: SteamMarketClient,
   ) {}
@@ -99,6 +102,15 @@ export class ItemsController {
   @ApiOkResponse({ type: CheapestPatternsDto })
   cheapestPatterns(@Query() query: ItemNameQueryDto): Promise<CheapestPatternsDto> {
     return this.blueGems.cheapest(query.name);
+  }
+
+  @Get('blue-gems/value')
+  @ApiOperation({
+    summary: 'What a Case Hardened pattern is worth, from recent CSFloat sales with similar blue',
+  })
+  @ApiOkResponse({ type: BlueValueDto })
+  blueValue(@Query() query: BlueValueQueryDto): Promise<BlueValueDto> {
+    return this.blueValues.value(query.name, query.paintSeed);
   }
 
   @Get('blue-gems/weapons')
