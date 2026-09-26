@@ -20,6 +20,7 @@ import { ItemsModule } from './modules/items/items.module';
 import { PricesModule } from './modules/prices/prices.module';
 import { SnipesModule } from './modules/snipes/snipes.module';
 import { StickersModule } from './modules/stickers/stickers.module';
+import { TradeUpsModule } from './modules/trade-ups/trade-ups.module';
 
 const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
 
@@ -60,6 +61,7 @@ const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
     StickersModule,
     SnipesModule,
     InventoryModule,
+    TradeUpsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
