@@ -3,6 +3,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import { fetchJson } from '../../common/http/fetch-json';
 import { csfloatConfig, type CsfloatConfig } from '../../config/app.config';
 import { type Listing, toStickerItemName } from '../../domain/listing';
+import {
+  COMMON_DOPPLER_PHASES,
+  hasDopplerPhases,
+  mergeDailySales,
+} from '../../domain/phase-prices';
+import { type DailySales } from '../../domain/sales';
 import { MarketId } from '../../domain/market-links';
 import {
   paintIndexForPhase,
@@ -14,6 +20,9 @@ import {
 const LISTINGS_URL = 'https://csfloat.com/api/v1/listings';
 const PRICE_LIST_URL = `${LISTINGS_URL}/price-list`;
 const MAX_LISTINGS = 50;
+const HISTORY_URL = 'https://csfloat.com/api/v1/history';
+const HISTORY_DAYS = 56;
+const DAY_MS = 86_400_000;
 
 export interface RawCsfloatListing {
   id: string;
@@ -69,6 +78,12 @@ interface RawCsfloatPrice {
   market_hash_name: string;
   quantity: number;
   min_price: number;
+}
+
+interface RawCsfloatDay {
+  day: string;
+  count: number;
+  avg_price: number;
 }
 
 interface RawCsfloatSchema {
@@ -191,6 +206,39 @@ export class CsfloatClient {
         url: `https://csfloat.com/item/${encodeURIComponent(row.id)}`,
       }))
       .filter((row) => !search.phase || row.phase === search.phase);
+  }
+
+  async fetchDailySales(name: string): Promise<DailySales[]> {
+    const { marketHashName, phase } = parseVariantName(name);
+    const phases =
+      phase !== null ? [phase] : hasDopplerPhases(marketHashName) ? COMMON_DOPPLER_PHASES : [null];
+    const series = await Promise.all(
+      phases.map((entry) =>
+        this.fetchGraph(
+          marketHashName,
+          entry === null ? null : paintIndexForPhase(marketHashName, entry),
+        ),
+      ),
+    );
+
+    return mergeDailySales(series);
+  }
+
+  private async fetchGraph(name: string, paintIndex: number | null): Promise<DailySales[]> {
+    const query = paintIndex === null ? '' : `?paint_index=${paintIndex}`;
+    const rows = await fetchJson<RawCsfloatDay[]>(
+      `${HISTORY_URL}/${encodeURIComponent(name)}/graph${query}`,
+      { headers: { Authorization: this.config.apiKey }, retries: 1 },
+    );
+    const since = new Date(Date.now() - HISTORY_DAYS * DAY_MS).toISOString().slice(0, 10);
+
+    return (Array.isArray(rows) ? rows : [])
+      .map((row) => ({
+        day: row.day.slice(0, 10),
+        average: Math.round(row.avg_price),
+        count: row.count,
+      }))
+      .filter((row) => row.day >= since && row.count > 0 && row.average > 0);
   }
 
   private async resolveStickerIds(names: string[]): Promise<number[]> {

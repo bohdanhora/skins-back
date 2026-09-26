@@ -111,6 +111,9 @@ export class ItemViewDto {
   @ApiProperty({ type: MarketQuoteDto, nullable: true })
   csfloat!: MarketQuoteDto | null;
 
+  @ApiProperty({ type: MarketQuoteDto, nullable: true })
+  lisSkins!: MarketQuoteDto | null;
+
   @ApiProperty({ type: PriceGapDto, nullable: true })
   gap!: PriceGapDto | null;
 
@@ -136,9 +139,23 @@ export class SalesDayDto {
   count!: number;
 }
 
-export class SalesChartDto {
+export class MarketSalesDto {
   @ApiProperty({ type: [SalesDayDto] })
+  dmarket!: SalesDayDto[];
+
+  @ApiProperty({ type: [SalesDayDto], nullable: true, description: 'Null without a CSFloat key' })
+  csfloat!: SalesDayDto[] | null;
+
+  @ApiProperty({ type: [SalesDayDto], nullable: true })
+  whiteMarket!: SalesDayDto[] | null;
+}
+
+export class SalesChartDto {
+  @ApiProperty({ type: [SalesDayDto], description: 'DMarket days' })
   days!: SalesDayDto[];
+
+  @ApiProperty({ type: MarketSalesDto })
+  markets!: MarketSalesDto;
 
   @ApiProperty({ type: SalesStatsDto, nullable: true })
   stats!: SalesStatsDto | null;
