@@ -28,7 +28,11 @@ import {
 import { teamKey, type VrsTeam } from '../../domain/cs-teams';
 import { BettingSyncService } from './betting-sync.service';
 import { OddsPapiClient, type OddsFixture } from './clients/oddspapi.client';
-import { PandaScoreClient, type ScheduledMatch } from './clients/pandascore.client';
+import {
+  PandaScoreClient,
+  type ScheduledMatch,
+  type ScheduledTeam,
+} from './clients/pandascore.client';
 import { VrsClient } from './clients/vrs.client';
 import type {
   BettingOverviewDto,
@@ -148,13 +152,15 @@ export class BettingService {
     };
   }
 
-  private team(model: Model, name: string, image: string | null): TeamForecastDto {
+  private team(model: Model, scheduled: ScheduledTeam): TeamForecastDto {
+    const { name, image } = scheduled;
     const key = teamKey(name);
     const entry = model.vrs.get(key);
     const habits = model.habits.get(key);
 
     return {
       name,
+      acronym: scheduled.acronym,
       image,
       rank: entry?.rank ?? null,
       points: entry?.points ?? null,
@@ -177,8 +183,8 @@ export class BettingService {
   ): Promise<MatchForecastDto> {
     const first = teamKey(match.team1.name);
     const second = teamKey(match.team2.name);
-    const team1 = this.team(model, match.team1.name, match.team1.image);
-    const team2 = this.team(model, match.team2.name, match.team2.image);
+    const team1 = this.team(model, match.team1);
+    const team2 = this.team(model, match.team2);
     const bestOf = SUPPORTED_BEST_OF.has(match.bestOf) ? (match.bestOf as 1 | 3 | 5) : 3;
     const chance = (map: string) => mapWinChance(model.ratings, first, second, map, model.prior);
     const firstStarts = (team1.rank ?? Infinity) <= (team2.rank ?? Infinity);

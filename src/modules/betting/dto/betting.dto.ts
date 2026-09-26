@@ -17,6 +17,9 @@ export class TeamForecastDto {
   name!: string;
 
   @ApiProperty({ type: String, nullable: true })
+  acronym!: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
   image!: string | null;
 
   @ApiProperty({ type: Number, nullable: true, description: 'Valve Regional Standings place' })
