@@ -1,12 +1,16 @@
 import {
+  cheapestPrice,
+  deepestListings,
   findInstantFlip,
   findListingFlip,
   findPriceGap,
+  secondPrice,
+  totalListings,
   type Fees,
-  type MarketQuote,
 } from '../../domain/comparison';
 import { findTopOffer, type SalesStats } from '../../domain/sales';
 import { calculateDealScore } from '../../domain/deal-score';
+import { hasDopplerPhases } from '../../domain/phase-prices';
 import { type ItemViewDto } from './dto/item-view.dto';
 import {
   DealMode,
@@ -31,10 +35,10 @@ export type SalesLookup = (name: string) => SalesStats | null;
 
 export const toView = (item: IndexedItem, fees: Fees, sales: SalesStats | null): ItemViewDto => {
   const top = findTopOffer(
-    cheapestListing(item),
+    cheapestPrice(item),
     item.dmarket?.bid ?? null,
     sales,
-    secondListing(item),
+    secondPrice(item),
   );
 
   return {
@@ -45,63 +49,39 @@ export const toView = (item: IndexedItem, fees: Fees, sales: SalesStats | null):
     category: item.category,
     phase: item.phase,
     collections: item.collections,
-    dealScore: calculateDealScore(top, sales, item.whiteMarket, item.dmarket, item.csfloat),
+    dealScore: calculateDealScore(top, sales, deepestListings(item)),
     whiteMarket: item.whiteMarket,
     dmarket: item.dmarket,
     csfloat: item.csfloat,
-    gap: findPriceGap(item.whiteMarket, item.dmarket, item.csfloat),
-    flip: findListingFlip(item.whiteMarket, item.dmarket, item.csfloat, fees),
-    instant: findInstantFlip(item.whiteMarket, item.dmarket, fees),
+    lisSkins: item.lisSkins,
+    gap: findPriceGap(item),
+    flip: findListingFlip(item, fees),
+    instant: findInstantFlip(item, fees),
     sales,
     top,
   };
 };
 
-const listedPrice = (quote: MarketQuote | null): number | null =>
-  quote && quote.listings > 0 ? quote.price : null;
+const cheapestListing = cheapestPrice;
 
-const secondListing = (
-  item: Pick<ItemViewDto, 'whiteMarket' | 'dmarket' | 'csfloat'>,
-): number | null => {
-  const prices = [
-    listedPrice(item.whiteMarket),
-    listedPrice(item.dmarket),
-    listedPrice(item.csfloat),
-  ]
-    .filter((price): price is number => price !== null)
-    .sort((left, right) => left - right);
-
-  return prices[1] ?? null;
-};
-
-const cheapestListing = (
-  item: Pick<ItemViewDto, 'whiteMarket' | 'dmarket' | 'csfloat'>,
-): number | null => {
-  const prices = [
-    listedPrice(item.whiteMarket),
-    listedPrice(item.dmarket),
-    listedPrice(item.csfloat),
-  ].filter((price): price is number => price !== null);
-
-  return prices.length > 0 ? Math.min(...prices) : null;
-};
-
-const popularity = (view: ItemViewDto): number =>
-  (view.whiteMarket?.listings ?? 0) + (view.dmarket?.listings ?? 0) + (view.csfloat?.listings ?? 0);
+const popularity = totalListings;
 
 const depth = (view: ItemViewDto, mode: DealMode): number => {
-  const wm = view.whiteMarket?.listings ?? 0;
-  const dm = view.dmarket?.listings ?? 0;
-  const cf = view.csfloat?.listings ?? 0;
+  const listings = [view.whiteMarket, view.dmarket, view.csfloat, view.lisSkins].map(
+    (quote) => quote?.listings ?? 0,
+  );
 
   switch (mode) {
     case DealMode.All:
     case DealMode.Top:
-      return Math.max(wm, dm, cf);
+      return deepestListings(view);
     case DealMode.Instant:
-      return Math.min(wm, view.dmarket?.bids ?? 0);
+      return Math.min(
+        view.instant ? (view[view.instant.buyOn]?.listings ?? 0) : 0,
+        view.dmarket?.bids ?? 0,
+      );
     default:
-      return [wm, dm, cf].sort((left, right) => right - left)[1] ?? 0;
+      return listings.sort((left, right) => right - left)[1] ?? 0;
   }
 };
 
@@ -185,10 +165,15 @@ const comparator = (
       return byNullableNumber((view) => view.sales?.eightWeekSales, -1);
     case ItemSort.Score:
       return byNullableNumber((view) => view.dealScore?.score, -1);
+    case ItemSort.BelowSales:
+      return byNullableNumber((view) => view.top?.percent, -1);
     default:
       return (left, right) => popularity(right) - popularity(left);
   }
 };
+
+export const isPhaseSummary = (row: Pick<IndexedItem, 'name' | 'phase'>): boolean =>
+  row.phase === null && hasDopplerPhases(row.name);
 
 export interface ItemsPage {
   items: ItemViewDto[];
@@ -208,11 +193,15 @@ export const queryItems = (
   const matches: ItemViewDto[] = [];
 
   for (const row of rows) {
-    if (names && !names.has(row.name)) {
+    if (names ? !names.has(row.name) : isPhaseSummary(row)) {
       continue;
     }
 
-    if ((query.category && row.category !== query.category) || !matchesWords(row, words)) {
+    if (
+      (query.category && row.category !== query.category) ||
+      (query.subcategory && row.subcategory !== query.subcategory) ||
+      !matchesWords(row, words)
+    ) {
       continue;
     }
 

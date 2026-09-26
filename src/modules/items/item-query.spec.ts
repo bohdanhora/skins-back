@@ -17,11 +17,13 @@ const item = (partial: Partial<IndexedItem> & Pick<IndexedItem, 'name'>): Indexe
     rarity: null,
     rarityColor: null,
     category: ItemCategory.Knife,
+    subcategory: null,
     phase: null,
     collections: [],
     whiteMarket: quote(100),
     dmarket: quote(200),
     csfloat: null,
+    lisSkins: null,
     ...overrides,
   };
 };

@@ -1,4 +1,4 @@
-import { ItemCategory, detectCategory } from './categories';
+import { ItemCategory, detectCategory, detectSubcategory } from './categories';
 
 describe('detectCategory', () => {
   it.each([
@@ -18,5 +18,18 @@ describe('detectCategory', () => {
 
   it('trusts the metadata type for agents', () => {
     expect(detectCategory("'Two Times' McCoy | TACP Cavalry", 'agent')).toBe(ItemCategory.Agent);
+  });
+});
+
+describe('detectSubcategory', () => {
+  it.each([
+    ['★ StatTrak™ Karambit | Doppler (Factory New) [Sapphire]', ItemCategory.Knife, 'Karambit'],
+    ['StatTrak™ AK-47 | Redline (Field-Tested)', ItemCategory.Rifle, 'AK-47'],
+    ['★ Sport Gloves | Vice (Field-Tested)', ItemCategory.Gloves, 'Sport Gloves'],
+    ['Sticker | Natus Vincere (Holo) | Katowice 2019', ItemCategory.Sticker, 'Katowice 2019'],
+    ['Sticker | Lil Ava', ItemCategory.Sticker, null],
+    ['Revolution Case', ItemCategory.Container, null],
+  ])('%s', (name, category, expected) => {
+    expect(detectSubcategory(name, category)).toBe(expected);
   });
 });

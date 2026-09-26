@@ -94,3 +94,30 @@ export const detectCategory = (name: string, metadataType?: string): ItemCategor
 
   return ItemCategory.Other;
 };
+
+const STICKER_EVENT = / \| ([^|]+ \d{4})$/;
+const VARIANT_OR_WEAR = / (\[[^\]]+\]|\([^)]+\))$/;
+
+export const detectSubcategory = (name: string, category: ItemCategory): string | null => {
+  if (category === ItemCategory.Sticker) {
+    return name.match(STICKER_EVENT)?.[1].trim() ?? null;
+  }
+
+  if (
+    category === ItemCategory.Container ||
+    category === ItemCategory.Agent ||
+    category === ItemCategory.Charm ||
+    category === ItemCategory.Other
+  ) {
+    return null;
+  }
+
+  const base = name
+    .replace(VARIANT_OR_WEAR, '')
+    .replace(/^★\s*/, '')
+    .replace(WEAPON_PREFIXES, '')
+    .replace(/^★\s*/, '');
+  const separator = base.indexOf(' | ');
+
+  return separator > 0 ? base.slice(0, separator) : null;
+};

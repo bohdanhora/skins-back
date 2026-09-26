@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
-import { ItemCategory, detectCategory } from '../../domain/categories';
-import { type MarketQuote } from '../../domain/comparison';
+import { ItemCategory, detectCategory, detectSubcategory } from '../../domain/categories';
+import { cheapestPrice, type MarketQuote } from '../../domain/comparison';
 import { parseVariantName, type MarketPhase } from '../../domain/market-variant';
 import { CatalogService } from '../catalog/catalog.service';
 import { PriceBoardService } from '../prices/price-board.service';
@@ -13,11 +13,13 @@ export interface IndexedItem {
   rarity: string | null;
   rarityColor: string | null;
   category: ItemCategory;
+  subcategory: string | null;
   phase: MarketPhase | null;
   collections: { name: string; image: string | null }[];
   whiteMarket: MarketQuote | null;
   dmarket: MarketQuote | null;
   csfloat: MarketQuote | null;
+  lisSkins: MarketQuote | null;
 }
 
 @Injectable()
@@ -43,13 +45,33 @@ export class ItemIndexService {
 
   cheapestPrice(name: string): number | null {
     const item = this.find(name);
-    const prices = [item?.whiteMarket, item?.dmarket, item?.csfloat]
-      .filter(
-        (quote): quote is MarketQuote => !!quote && quote.listings > 0 && quote.price !== null,
-      )
-      .map((quote) => quote.price!);
 
-    return prices.length > 0 ? Math.min(...prices) : null;
+    return item ? cheapestPrice(item) : null;
+  }
+
+  subcategories(): Record<string, { value: string; image: string | null; count: number }[]> {
+    this.ensureFresh();
+    const groups = new Map<string, Map<string, { image: string | null; count: number }>>();
+
+    for (const item of this.rows) {
+      if (!item.subcategory) continue;
+
+      const group =
+        groups.get(item.category) ?? new Map<string, { image: string | null; count: number }>();
+      const entry = group.get(item.subcategory) ?? { image: null, count: 0 };
+
+      group.set(item.subcategory, { image: entry.image ?? item.image, count: entry.count + 1 });
+      groups.set(item.category, group);
+    }
+
+    return Object.fromEntries(
+      [...groups].map(([category, group]) => [
+        category,
+        [...group]
+          .map(([value, entry]) => ({ value, ...entry }))
+          .sort((left, right) => left.value.localeCompare(right.value)),
+      ]),
+    );
   }
 
   collections(): { name: string; image: string | null }[] {
@@ -78,19 +100,25 @@ export class ItemIndexService {
     this.rows = this.board.all().map((item) => {
       const variant = parseVariantName(item.name);
       const metadata = this.catalog.get(variant.marketHashName);
+      const category = detectCategory(item.name, metadata?.type);
 
       return {
         name: item.name,
         searchName: item.name.toLowerCase(),
-        image: metadata?.image ?? null,
+        image:
+          (variant.phase && this.catalog.phaseImage(variant.marketHashName, variant.phase)) ??
+          metadata?.image ??
+          null,
         rarity: metadata?.rarity ?? null,
         rarityColor: metadata?.rarityColor ?? null,
-        category: detectCategory(item.name, metadata?.type),
+        category,
+        subcategory: detectSubcategory(item.name, category),
         phase: variant.phase,
         collections: metadata?.collections ?? [],
         whiteMarket: item.whiteMarket,
         dmarket: item.dmarket,
         csfloat: item.csfloat,
+        lisSkins: item.lisSkins,
       };
     });
     this.byName = new Map(this.rows.map((row) => [row.name, row]));

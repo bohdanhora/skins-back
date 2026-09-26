@@ -40,3 +40,8 @@ export interface ItemLibraryDto {
   skins: ItemLibraryOptionDto[];
   variants: ItemLibraryVariantDto[];
 }
+
+export interface ItemFacetsDto {
+  collections: { name: string; image: string | null }[];
+  subcategories: Record<string, { value: string; image: string | null; count: number }[]>;
+}

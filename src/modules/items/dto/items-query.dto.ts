@@ -35,6 +35,7 @@ export enum ItemSort {
   Name = 'name',
   Sales8w = 'sales8w',
   Score = 'score',
+  BelowSales = 'belowSales',
 }
 
 export enum ItemWear {
@@ -83,6 +84,12 @@ export class ItemsQueryDto {
   @IsOptional()
   @IsIn(MARKET_PHASES)
   phase?: MarketPhase;
+
+  @ApiPropertyOptional({ description: 'Weapon, knife or glove model, or sticker event' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  subcategory?: string;
 
   @ApiPropertyOptional({ description: 'Exact collection name' })
   @IsOptional()
