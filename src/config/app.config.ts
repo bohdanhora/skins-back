@@ -16,6 +16,7 @@ export interface AppConfig {
 
 export interface SyncConfig {
   pricesRefreshMs: number;
+  listingsRefreshMs: number;
   catalogRefreshMs: number;
   salesRefreshMs: number;
   floatRefreshMs: number;
@@ -58,6 +59,7 @@ export const appConfig = registerAs<AppConfig>('app', () => {
 
 export const syncConfig = registerAs<SyncConfig>('sync', () => ({
   pricesRefreshMs: Number(process.env.PRICES_REFRESH_MINUTES ?? 5) * MINUTE_MS,
+  listingsRefreshMs: Number(process.env.LISTINGS_REFRESH_MINUTES ?? 2) * MINUTE_MS,
   catalogRefreshMs: Number(process.env.CATALOG_REFRESH_HOURS ?? 24) * HOUR_MS,
   salesRefreshMs: Number(process.env.SALES_REFRESH_HOURS ?? 3) * HOUR_MS,
   floatRefreshMs: Number(process.env.FLOAT_REFRESH_HOURS ?? 2) * HOUR_MS,

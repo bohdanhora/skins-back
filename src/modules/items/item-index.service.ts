@@ -20,6 +20,7 @@ export interface IndexedItem {
   dmarket: MarketQuote | null;
   csfloat: MarketQuote | null;
   lisSkins: MarketQuote | null;
+  priceChangedAt: number | null;
 }
 
 @Injectable()
@@ -119,6 +120,7 @@ export class ItemIndexService {
         dmarket: item.dmarket,
         csfloat: item.csfloat,
         lisSkins: item.lisSkins,
+        priceChangedAt: this.board.priceChangedAt(item.name),
       };
     });
     this.byName = new Map(this.rows.map((row) => [row.name, row]));

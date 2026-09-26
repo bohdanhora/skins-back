@@ -16,6 +16,7 @@ const item = (name: string, category: ItemCategory, price: number): IndexedItem 
   dmarket: null,
   csfloat: null,
   lisSkins: null,
+  priceChangedAt: null,
 });
 
 describe('item library', () => {

@@ -36,6 +36,7 @@ export enum ItemSort {
   Sales8w = 'sales8w',
   Score = 'score',
   BelowSales = 'belowSales',
+  Fresh = 'fresh',
 }
 
 export enum ItemWear {

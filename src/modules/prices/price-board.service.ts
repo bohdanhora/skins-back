@@ -9,7 +9,7 @@ import {
 import { DiskCache } from '../../common/cache/disk-cache';
 import { wait } from '../../common/http/fetch-json';
 import { appConfig, syncConfig, type AppConfig, type SyncConfig } from '../../config/app.config';
-import { type MarketQuote, type MarketQuotes } from '../../domain/comparison';
+import { cheapestPrice, type MarketQuote, type MarketQuotes } from '../../domain/comparison';
 import { csfloatItemUrl, dmarketItemUrl } from '../../domain/market-links';
 import { parseVariantName, variantName } from '../../domain/market-variant';
 import { hasDopplerPhases, summarizePhaseDepth, type PhaseQuote } from '../../domain/phase-prices';
@@ -75,6 +75,9 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   private lisSkinsState: MarketSyncState = { updatedAt: null, items: 0, error: null };
   private refreshing: Promise<void> | null = null;
   private csfloatPhasesRunning = false;
+  private dmarketPulledAt = 0;
+  private priceSeen = new Map<string, { price: number; since: number }>();
+  private readonly drops = new Set<string>();
   private timer: NodeJS.Timeout | null = null;
   private currentVersion = 0;
 
@@ -205,7 +208,7 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
 
   refresh(): Promise<void> {
     this.refreshing ??= this.pull()
-      .then(() => this.schedule(this.sync.pricesRefreshMs))
+      .then(() => this.schedule(this.sync.listingsRefreshMs))
       .catch((error: unknown) => {
         this.logger.warn(`Price refresh failed: ${String(error)}`);
         this.schedule(RETRY_AFTER_FAILURE_MS);
@@ -219,54 +222,56 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
 
   private async pull(): Promise<void> {
     const started = Date.now();
+    const [whiteMarket, csfloat, lisSkins] = await Promise.allSettled([
+      this.whiteMarketExport.fetchPrices(),
+      this.csfloatClient.fetchPrices(),
+      this.lisSkinsClient.fetchPrices(),
+    ]);
+    const now = new Date().toISOString();
 
-    try {
-      this.whiteMarket = await this.whiteMarketExport.fetchPrices();
-      this.whiteMarketState = {
-        updatedAt: new Date().toISOString(),
-        items: this.whiteMarket.size,
-        error: null,
-      };
-      this.rebuild();
-    } catch (error) {
-      this.whiteMarketState = { ...this.whiteMarketState, error: String(error) };
-      this.logger.warn(`white.market prices failed: ${String(error)}`);
+    if (whiteMarket.status === 'fulfilled') {
+      this.whiteMarket = whiteMarket.value;
+      this.whiteMarketState = { updatedAt: now, items: this.whiteMarket.size, error: null };
+    } else {
+      this.whiteMarketState = { ...this.whiteMarketState, error: String(whiteMarket.reason) };
+      this.logger.warn(`white.market prices failed: ${String(whiteMarket.reason)}`);
     }
 
-    try {
-      const csfloat = await this.csfloatClient.fetchPrices();
-
+    if (csfloat.status === 'fulfilled') {
       for (const [name, price] of this.csfloat) {
-        if (parseVariantName(name).phase && !csfloat.has(name)) {
-          csfloat.set(name, price);
+        if (parseVariantName(name).phase && !csfloat.value.has(name)) {
+          csfloat.value.set(name, price);
         }
       }
 
-      this.csfloat = csfloat;
-      this.csfloatState = {
-        updatedAt: new Date().toISOString(),
-        items: this.csfloat.size,
-        error: null,
-      };
-      this.rebuild();
-    } catch (error) {
-      this.csfloatState = { ...this.csfloatState, error: String(error) };
-      this.logger.warn(`CSFloat prices failed: ${String(error)}`);
+      this.csfloat = csfloat.value;
+      this.csfloatState = { updatedAt: now, items: this.csfloat.size, error: null };
+    } else {
+      this.csfloatState = { ...this.csfloatState, error: String(csfloat.reason) };
+      this.logger.warn(`CSFloat prices failed: ${String(csfloat.reason)}`);
     }
 
-    try {
-      this.lisSkins = await this.lisSkinsClient.fetchPrices();
-      this.lisSkinsState = {
-        updatedAt: new Date().toISOString(),
-        items: this.lisSkins.size,
-        error: null,
-      };
-      this.rebuild();
-    } catch (error) {
-      this.lisSkinsState = { ...this.lisSkinsState, error: String(error) };
-      this.logger.warn(`lis-skins prices failed: ${String(error)}`);
+    if (lisSkins.status === 'fulfilled') {
+      this.lisSkins = lisSkins.value;
+      this.lisSkinsState = { updatedAt: now, items: this.lisSkins.size, error: null };
+    } else {
+      this.lisSkinsState = { ...this.lisSkinsState, error: String(lisSkins.reason) };
+      this.logger.warn(`lis-skins prices failed: ${String(lisSkins.reason)}`);
     }
 
+    this.rebuild();
+
+    if (Date.now() - this.dmarketPulledAt >= this.sync.pricesRefreshMs) {
+      await this.pullDmarket();
+    }
+
+    await this.persist();
+    this.logger.log(
+      `Prices refreshed in ${Math.round((Date.now() - started) / 1000)}s: ${this.items.length} items`,
+    );
+  }
+
+  private async pullDmarket(): Promise<void> {
     const names = [
       ...new Set([
         ...[...this.whiteMarket.keys()].map((name) => parseVariantName(name).marketHashName),
@@ -276,6 +281,7 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
 
     try {
       this.dmarket = await this.dmarketPrices.fetchPrices(names, 'background');
+      this.dmarketPulledAt = Date.now();
       this.dmarketState = {
         updatedAt: new Date().toISOString(),
         items: [...this.dmarket.values()].filter((price) => price.listings > 0).length,
@@ -289,11 +295,6 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
 
     await this.refreshPhases([...this.dmarket.keys()].filter(hasDopplerPhases), 'background');
     void this.refreshCsfloatPhases();
-
-    await this.persist();
-    this.logger.log(
-      `Prices refreshed in ${Math.round((Date.now() - started) / 1000)}s: ${this.items.length} items`,
-    );
   }
 
   private rebuild(): void {
@@ -317,9 +318,36 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
       }
     }
 
+    this.trackPrices(items);
     this.items = items;
     this.byName = new Map(items.map((item) => [item.name, item]));
     this.currentVersion += 1;
+  }
+
+  private trackPrices(items: PricedItem[]): void {
+    const now = Date.now();
+    const warmingUp = this.priceSeen.size === 0;
+
+    for (const item of items) {
+      const price = cheapestPrice(item);
+
+      if (price === null) continue;
+
+      const seen = this.priceSeen.get(item.name);
+
+      if (!seen) {
+        this.priceSeen.set(item.name, { price, since: warmingUp ? 0 : now });
+        continue;
+      }
+
+      if (price === seen.price) continue;
+
+      this.priceSeen.set(item.name, { price, since: now });
+
+      if (price < seen.price * (1 - DROP_SHARE) && this.drops.size < MAX_QUEUED_DROPS) {
+        this.drops.add(item.name);
+      }
+    }
   }
 
   private toWhiteMarketQuote(name: string): MarketQuote | null {

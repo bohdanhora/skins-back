@@ -128,6 +128,9 @@ export class ItemViewDto {
 
   @ApiProperty({ type: TopOfferDto, nullable: true })
   top!: TopOfferDto | null;
+
+  @ApiProperty({ nullable: true, description: 'When the cheapest price last changed, ISO time' })
+  priceChangedAt!: string | null;
 }
 
 export class SalesDayDto {

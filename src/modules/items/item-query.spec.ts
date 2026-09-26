@@ -24,6 +24,7 @@ const item = (partial: Partial<IndexedItem> & Pick<IndexedItem, 'name'>): Indexe
     dmarket: quote(200),
     csfloat: null,
     lisSkins: null,
+    priceChangedAt: null,
     ...overrides,
   };
 };

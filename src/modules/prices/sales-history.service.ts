@@ -25,6 +25,7 @@ const WARMUP_PAUSE_MS = 5_000;
 const ERROR_PAUSE_MS = 5_000;
 const SAVE_EVERY = 250;
 const CHART_TTL_MS = 30 * 60_000;
+const DROP_RECHECK_MS = 60 * 60_000;
 const CHART_CACHE_SIZE = 300;
 
 interface StoredStats {
@@ -122,7 +123,7 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
 
   private async run(): Promise<void> {
     while (!this.stopped) {
-      const next = this.nextStale();
+      const next = this.nextDrop() ?? this.nextStale();
 
       if (!next) {
         await wait(this.candidates().length === 0 ? WARMUP_PAUSE_MS : IDLE_PAUSE_MS);
@@ -152,6 +153,18 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
         await wait(ERROR_PAUSE_MS);
       }
     }
+  }
+
+  private nextDrop(): string | undefined {
+    const recheckBefore = Date.now() - DROP_RECHECK_MS;
+
+    for (let name = this.board.takeDrop(); name; name = this.board.takeDrop()) {
+      if ((this.stats.get(name)?.fetchedAt ?? 0) <= recheckBefore) {
+        return name;
+      }
+    }
+
+    return undefined;
   }
 
   private nextStale(): string | undefined {

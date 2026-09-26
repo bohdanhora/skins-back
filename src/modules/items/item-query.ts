@@ -59,6 +59,7 @@ export const toView = (item: IndexedItem, fees: Fees, sales: SalesStats | null):
     instant: findInstantFlip(item, fees),
     sales,
     top,
+    priceChangedAt: item.priceChangedAt ? new Date(item.priceChangedAt).toISOString() : null,
   };
 };
 
@@ -165,6 +166,11 @@ const comparator = (
       return byNullableNumber((view) => view.sales?.eightWeekSales, -1);
     case ItemSort.Score:
       return byNullableNumber((view) => view.dealScore?.score, -1);
+    case ItemSort.Fresh:
+      return byNullableNumber(
+        (view) => (view.priceChangedAt ? Date.parse(view.priceChangedAt) : null),
+        -1,
+      );
     case ItemSort.BelowSales:
       return byNullableNumber((view) => view.top?.percent, -1);
     default:

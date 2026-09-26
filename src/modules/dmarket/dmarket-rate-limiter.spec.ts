@@ -2,6 +2,7 @@ import { DmarketRateLimiter } from './dmarket-rate-limiter';
 
 const sync = {
   pricesRefreshMs: 0,
+  listingsRefreshMs: 0,
   catalogRefreshMs: 0,
   salesRefreshMs: 0,
   floatRefreshMs: 0,

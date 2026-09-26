@@ -37,6 +37,13 @@ export class EnvironmentVariables {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(1440)
+  @IsOptional()
+  LISTINGS_REFRESH_MINUTES = 2;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   @Max(720)
   @IsOptional()
   CATALOG_REFRESH_HOURS = 24;
