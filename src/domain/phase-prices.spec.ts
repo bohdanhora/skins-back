@@ -1,5 +1,10 @@
 import { type DepthOffer, type DepthOrder } from './float-snipes';
-import { hasDopplerPhases, mergeDailySales, summarizePhaseDepth } from './phase-prices';
+import {
+  hasDopplerPhases,
+  mergeDailySales,
+  summarizeDepth,
+  summarizePhaseDepth,
+} from './phase-prices';
 
 const offer = (price: number, phase: string): DepthOffer => ({
   price,
@@ -72,5 +77,16 @@ describe('mergeDailySales', () => {
       { day: '2026-09-19', average: 500, count: 2 },
       { day: '2026-09-20', average: 1750, count: 4 },
     ]);
+  });
+});
+
+describe('summarizeDepth', () => {
+  it('takes the best live plain order as the bid', () => {
+    expect(
+      summarizeDepth(
+        [offer(90, 'phase-1'), offer(95, 'phase-2')],
+        [order(167, null, 20), order(71, null), order(80, 'phase-2')],
+      ),
+    ).toEqual({ price: 90, listings: 2, bid: 71, bids: 1 });
   });
 });

@@ -11,11 +11,13 @@ import { UpstreamError, wait } from '../../common/http/fetch-json';
 import { appConfig, syncConfig, type AppConfig, type SyncConfig } from '../../config/app.config';
 import {
   findSnipes,
+  liveOrders,
   type DepthOrder,
   type FloatSnipe,
   type SnipeCandidate,
 } from '../../domain/float-snipes';
 import { cheapestPrice } from '../../domain/comparison';
+import { summarizeDepth } from '../../domain/phase-prices';
 import { parseVariantName } from '../../domain/market-variant';
 import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
 import { CsfloatClient } from '../csfloat/csfloat.client';
@@ -23,6 +25,7 @@ import { PriceBoardService, type PricedItem } from '../prices/price-board.servic
 import { WhiteMarketPartnerClient } from '../white-market/white-market-partner.client';
 
 const CACHE_KEY = 'float-snipes';
+const BID_RECHECK_MS = 30 * 60_000;
 const HAS_WEAR = /\((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/;
 const MIN_PRICE_CENTS = 50;
 const WHITE_MARKET_LISTINGS = 50;
@@ -99,7 +102,7 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
 
   private async run(): Promise<void> {
     while (!this.stopped) {
-      const next = this.nextStale();
+      const next = this.nextBidCheck() ?? this.nextStale();
 
       if (!next) {
         await wait(this.candidates().length === 0 ? WARMUP_PAUSE_MS : IDLE_PAUSE_MS);
@@ -125,7 +128,12 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
   }
 
   private async scan(name: string): Promise<FloatSnipe[]> {
-    const { offers, orders } = await this.depth.fetch(name, 'background');
+    const depth = await this.depth.fetch(name, 'background');
+    const { offers } = depth;
+    const orders = liveOrders(offers, depth.orders);
+
+    this.board.recordDepth(name, summarizeDepth(offers, depth.orders));
+
     const candidates: SnipeCandidate[] = offers.map((offer) => ({ ...offer, source: 'dmarket' }));
 
     candidates.push(...(await this.whiteMarketCandidates(name, orders)));
@@ -212,6 +220,24 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
             phase: null,
           },
         ];
+  }
+
+  private nextBidCheck(): string | undefined {
+    const recheckBefore = Date.now() - BID_RECHECK_MS;
+
+    return this.board.all().find((item) => {
+      const bid = item.dmarket?.bid;
+      const price = cheapestPrice(item);
+
+      return (
+        !parseVariantName(item.name).phase &&
+        bid !== null &&
+        bid !== undefined &&
+        price !== null &&
+        bid >= price &&
+        this.board.depthCheckedAt(item.name) <= recheckBefore
+      );
+    })?.name;
   }
 
   private nextStale(): string | undefined {

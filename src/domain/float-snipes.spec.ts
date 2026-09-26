@@ -1,5 +1,6 @@
 import {
   findSnipes,
+  liveOrders,
   orderAccepts,
   snipeProfit,
   type SnipeCandidate,
@@ -115,5 +116,16 @@ describe('findSnipes', () => {
     const [snipe] = findSnipes([offer(2700, 0.16)], [order(5400, { floatPart: 'FT-0' })]);
 
     expect(snipeProfit(snipe, 0.05)).toBe(5130 - 2700);
+  });
+});
+
+describe('liveOrders', () => {
+  it('drops plain orders priced above a listing they would accept', () => {
+    const offers = [offer(90, 0.2)];
+    const dead = order(167);
+    const live = order(71);
+    const byFloat = order(300, { floatPart: 'FN-0' });
+
+    expect(liveOrders(offers, [dead, live, byFloat])).toEqual([live, byFloat]);
   });
 });

@@ -1,4 +1,4 @@
-import { type DepthOffer, type DepthOrder } from './float-snipes';
+import { liveOrders, type DepthOffer, type DepthOrder } from './float-snipes';
 import { type DailySales } from './sales';
 import {
   MARKET_PHASES,
@@ -41,8 +41,14 @@ const quoteOf = (offers: DepthOffer[], orders: DepthOrder[]): PhaseQuote => {
   };
 };
 
+export const summarizeDepth = (offers: DepthOffer[], orders: DepthOrder[]): PhaseQuote =>
+  quoteOf(
+    offers,
+    liveOrders(offers, orders).filter((order) => isUnconditional(order) && order.phase === null),
+  );
+
 export const summarizePhaseDepth = (offers: DepthOffer[], orders: DepthOrder[]): PhaseQuotes => {
-  const unconditional = orders.filter(isUnconditional);
+  const unconditional = liveOrders(offers, orders).filter(isUnconditional);
   const anyPhase = unconditional.filter((order) => order.phase === null);
   const phases = new Map<MarketPhase, PhaseQuote>();
 

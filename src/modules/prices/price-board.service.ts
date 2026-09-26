@@ -27,6 +27,10 @@ import {
 const CACHE_KEY = 'prices';
 const RETRY_AFTER_FAILURE_MS = 60_000;
 const CSFLOAT_PHASE_PAUSE_MS = 1_500;
+const DEPTH_TTL_MS = 6 * 60 * 60_000;
+const DEPTH_REBUILD_DELAY_MS = 30_000;
+const DROP_SHARE = 0.03;
+const MAX_QUEUED_DROPS = 2_000;
 
 export interface PricedItem extends MarketQuotes {
   name: string;
@@ -45,6 +49,7 @@ interface Snapshot {
   csfloat?: Record<string, CsfloatPrice>;
   dmarketPhases?: Record<string, PhaseQuote>;
   lisSkins?: Record<string, LisSkinsPrice>;
+  dmarketDepths?: Record<string, { quote: PhaseQuote; at: number }>;
   whiteMarketAt: string | null;
   dmarketAt: string | null;
   csfloatAt?: string | null;
@@ -59,6 +64,8 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   private dmarket = new Map<string, DmarketPrice>();
   private csfloat = new Map<string, CsfloatPrice>();
   private dmarketPhases = new Map<string, PhaseQuote>();
+  private dmarketDepths = new Map<string, { quote: PhaseQuote; at: number }>();
+  private depthRebuild: NodeJS.Timeout | null = null;
   private lisSkins = new Map<string, LisSkinsPrice>();
   private items: PricedItem[] = [];
   private byName = new Map<string, PricedItem>();
@@ -106,6 +113,24 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
     };
   }
 
+  priceChangedAt(name: string): number | null {
+    return this.priceSeen.get(name)?.since || null;
+  }
+
+  depthCheckedAt(name: string): number {
+    return this.dmarketDepths.get(name)?.at ?? 0;
+  }
+
+  takeDrop(): string | undefined {
+    const [next] = this.drops;
+
+    if (next !== undefined) {
+      this.drops.delete(next);
+    }
+
+    return next;
+  }
+
   all(): readonly PricedItem[] {
     return this.items;
   }
@@ -116,6 +141,16 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
 
   find(name: string): PricedItem | undefined {
     return this.byName.get(name);
+  }
+
+  recordDepth(name: string, quote: PhaseQuote): void {
+    this.dmarketDepths.set(name, { quote, at: Date.now() });
+
+    this.depthRebuild ??= setTimeout(() => {
+      this.depthRebuild = null;
+      this.rebuild();
+    }, DEPTH_REBUILD_DELAY_MS);
+    this.depthRebuild.unref();
   }
 
   async onApplicationBootstrap(): Promise<void> {
@@ -130,6 +165,10 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   onModuleDestroy(): void {
     if (this.timer) {
       clearTimeout(this.timer);
+    }
+
+    if (this.depthRebuild) {
+      clearTimeout(this.depthRebuild);
     }
   }
 
@@ -301,7 +340,29 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
       return null;
     }
 
-    return { ...price, url: dmarketItemUrl(variant.marketHashName) };
+    return {
+      ...price,
+      ...this.checkedBid(name, price),
+      url: dmarketItemUrl(variant.marketHashName),
+    };
+  }
+
+  private checkedBid(
+    name: string,
+    price: DmarketPrice | PhaseQuote,
+  ): { bid: number | null; bids: number } {
+    const depth = this.dmarketDepths.get(name);
+
+    if (depth && Date.now() - depth.at < DEPTH_TTL_MS) {
+      return { bid: depth.quote.bid, bids: depth.quote.bids };
+    }
+
+    return price.bid !== null &&
+      price.price !== null &&
+      price.listings > 0 &&
+      price.bid > price.price
+      ? { bid: null, bids: 0 }
+      : { bid: price.bid, bids: price.bids };
   }
 
   private toCsfloatQuote(name: string): MarketQuote | null {
@@ -425,6 +486,7 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
     this.csfloat = new Map(Object.entries(value.csfloat ?? {}));
     this.dmarketPhases = new Map(Object.entries(value.dmarketPhases ?? {}));
     this.lisSkins = new Map(Object.entries(value.lisSkins ?? {}));
+    this.dmarketDepths = new Map(Object.entries(value.dmarketDepths ?? {}));
     this.lisSkinsState = {
       updatedAt: value.lisSkinsAt ?? null,
       items: this.lisSkins.size,
@@ -458,6 +520,7 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
         csfloat: Object.fromEntries(this.csfloat),
         dmarketPhases: Object.fromEntries(this.dmarketPhases),
         lisSkins: Object.fromEntries(this.lisSkins),
+        dmarketDepths: Object.fromEntries(this.dmarketDepths),
         lisSkinsAt: this.lisSkinsState.updatedAt,
         whiteMarketAt: this.whiteMarketState.updatedAt,
         dmarketAt: this.dmarketState.updatedAt,

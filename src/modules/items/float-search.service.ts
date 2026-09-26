@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { DMARKET_FLOAT_PARTS, inRange, overlaps } from '../../domain/float';
+import { liveOrders } from '../../domain/float-snipes';
 import { MarketId, dmarketListingUrl } from '../../domain/market-links';
 import { parseVariantName, type MarketPhase } from '../../domain/market-variant';
 import { CsfloatClient } from '../csfloat/csfloat.client';
@@ -128,7 +129,7 @@ export class FloatSearchService {
             url: dmarketListingUrl(name, offer.float),
           })),
         },
-        orders: orders
+        orders: liveOrders(offers, orders)
           .filter((order) => order.paintSeed === null && order.phase === null)
           .map((order) => ({
             price: order.price,

@@ -49,6 +49,14 @@ export const orderAccepts = (order: DepthOrder, offer: DepthOffer): boolean => {
   return order.phase === null || order.phase === offer.phase;
 };
 
+export const liveOrders = (offers: DepthOffer[], orders: DepthOrder[]): DepthOrder[] =>
+  orders.filter(
+    (order) =>
+      order.floatPart !== null ||
+      order.paintSeed !== null ||
+      !offers.some((offer) => offer.price < order.price && orderAccepts(order, offer)),
+  );
+
 export interface SnipeCandidate extends DepthOffer {
   source: SnipeSource;
   listingUrl?: string | null;
