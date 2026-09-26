@@ -1,5 +1,7 @@
 import { registerAs } from '@nestjs/config';
 
+import { deriveEncryptionKey } from '../common/crypto/secret-cipher';
+
 import { NodeEnvironment } from './environment';
 
 const MINUTE_MS = 60_000;
@@ -29,6 +31,10 @@ export interface BettingConfig {
   oddsPapiKey: string;
   pandaScoreToken: string;
   isEnabled: boolean;
+}
+
+export interface AssistantConfig {
+  encryptionKey: Buffer | null;
 }
 
 export interface SyncConfig {
@@ -90,6 +96,12 @@ export const bettingConfig = registerAs<BettingConfig>('betting', () => {
   const pandaScoreToken = readSecret('PANDASCORE_API_TOKEN');
 
   return { oddsPapiKey, pandaScoreToken, isEnabled: pandaScoreToken.length > 0 };
+});
+
+export const assistantConfig = registerAs<AssistantConfig>('assistant', () => {
+  const secret = readSecret('ENCRYPTION_KEY');
+
+  return { encryptionKey: secret ? deriveEncryptionKey(secret) : null };
 });
 
 export const syncConfig = registerAs<SyncConfig>('sync', () => ({

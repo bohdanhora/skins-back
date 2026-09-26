@@ -7,6 +7,8 @@ import { AccountsAndPurchases1790000000000 } from '../../migrations/179000000000
 import { FavoritesAndSettings1790000000001 } from '../../migrations/1790000000001-favorites-and-settings';
 import { BettingHistory1790000000002 } from '../../migrations/1790000000002-betting-history';
 import { PurchaseStickers1790000000003 } from '../../migrations/1790000000003-purchase-stickers';
+import { AssistantProviders1790000000004 } from '../../migrations/1790000000004-assistant-providers';
+import { AssistantProviderEntity } from '../assistant/assistant-provider.entity';
 import { SessionEntity } from '../auth/session.entity';
 import { UserEntity } from '../auth/user.entity';
 import { MapResultEntity } from '../betting/map-result.entity';
@@ -34,12 +36,14 @@ import { UserSettingsEntity } from '../settings/user-settings.entity';
             UserSettingsEntity,
             MapResultEntity,
             SourcePageEntity,
+            AssistantProviderEntity,
           ],
           migrations: [
             AccountsAndPurchases1790000000000,
             FavoritesAndSettings1790000000001,
             BettingHistory1790000000002,
             PurchaseStickers1790000000003,
+            AssistantProviders1790000000004,
           ],
           migrationsRun: true,
           synchronize: false,

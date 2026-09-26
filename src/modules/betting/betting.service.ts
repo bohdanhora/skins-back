@@ -78,6 +78,12 @@ export class BettingService {
     private readonly odds: OddsPapiClient,
   ) {}
 
+  async match(id: number): Promise<MatchForecastDto | null> {
+    const overview = await this.overview();
+
+    return overview.matches.find((match) => match.id === id) ?? null;
+  }
+
   async overview(): Promise<BettingOverviewDto> {
     const [model, schedule, fixtures] = await Promise.all([
       this.loadModel(),

@@ -7,6 +7,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import {
   appConfig,
+  assistantConfig,
   authConfig,
   bettingConfig,
   csfloatConfig,
@@ -17,6 +18,7 @@ import {
   type AppConfig,
 } from './config/app.config';
 import { validateEnvironment } from './config/environment';
+import { AssistantModule } from './modules/assistant/assistant.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BettingModule } from './modules/betting/betting.module';
 import { DatabaseModule } from './modules/database/database.module';
@@ -43,6 +45,7 @@ const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
         appConfig,
         databaseConfig,
         authConfig,
+        assistantConfig,
         bettingConfig,
         syncConfig,
         whiteMarketConfig,
@@ -86,6 +89,7 @@ const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
     FavoritesModule,
     SettingsModule,
     BettingModule,
+    AssistantModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

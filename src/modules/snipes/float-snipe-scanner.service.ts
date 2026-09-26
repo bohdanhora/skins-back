@@ -152,7 +152,7 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     this.nextCsfloatScanAt = Date.now() + CSFLOAT_SCAN_INTERVAL_MS;
 
     try {
-      const listings = await this.csfloat.searchListings({ name });
+      const listings = await this.csfloat.searchListings({ name }, { background: true });
 
       return listings
         .filter((listing) => listing.price < bestOrder)

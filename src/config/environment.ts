@@ -125,6 +125,10 @@ export class EnvironmentVariables {
 
   @IsString()
   @IsOptional()
+  ENCRYPTION_KEY?: string;
+
+  @IsString()
+  @IsOptional()
   ODDSPAPI_API_KEY?: string;
 
   @IsString()

@@ -21,6 +21,7 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@csfloat/cs2-inspect-serializer": "^1.1.6",
     "@nestjs/common": "^11.2.6",
     "@nestjs/config": "^4.0.4",

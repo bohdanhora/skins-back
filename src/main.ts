@@ -18,6 +18,7 @@ async function bootstrap(): Promise<void> {
   app.useLogger(logger);
   app.setGlobalPrefix(API_PREFIX);
   app.use(helmet());
+  app.useBodyParser('json', { limit: '8mb' });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

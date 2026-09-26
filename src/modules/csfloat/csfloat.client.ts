@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import { fetchJson } from '../../common/http/fetch-json';
+import { UpstreamError } from '../../common/http/fetch-json';
+import { RateGate, type RateSnapshot } from '../../domain/rate-gate';
 import { csfloatConfig, type CsfloatConfig } from '../../config/app.config';
 import { type Listing, toStickerItemName } from '../../domain/listing';
 import {
@@ -92,6 +93,15 @@ export interface CsfloatPatternListing {
   url: string;
 }
 
+export interface CsfloatLot {
+  name: string;
+  price: number;
+  float: number | null;
+  paintSeed: number | null;
+  stickers: string[];
+  image: string | null;
+}
+
 export interface CsfloatPatternSearch {
   defIndex: number;
   paintIndex: number;
@@ -137,9 +147,31 @@ interface RawCsfloatSchema {
   stickers: Record<string, { market_hash_name: string }>;
 }
 
+export interface CallOptions {
+  background?: boolean;
+  retries?: number;
+}
+
+export class CsfloatPausedError extends UpstreamError {
+  constructor(
+    url: string,
+    readonly until: number,
+  ) {
+    super(url, TOO_MANY_REQUESTS, `paused until ${new Date(until).toISOString()}`);
+    this.name = 'CsfloatPausedError';
+  }
+}
+
+const TOO_MANY_REQUESTS = 429;
+const SERVER_ERROR_FLOOR = 500;
+const USER_RESERVE = 40;
+const FALLBACK_PAUSE_MS = 60_000;
+const REQUEST_TIMEOUT_MS = 20_000;
+
 @Injectable()
 export class CsfloatClient {
   private stickerIds: Promise<Map<string, number>> | null = null;
+  private readonly gate = new RateGate(USER_RESERVE, FALLBACK_PAUSE_MS);
 
   constructor(@Inject(csfloatConfig.KEY) private readonly config: CsfloatConfig) {}
 
@@ -147,10 +179,52 @@ export class CsfloatClient {
     return this.config.isEnabled;
   }
 
+  quota(): RateSnapshot {
+    return this.gate.snapshot(Date.now());
+  }
+
+  private async call<T>(url: string, options: CallOptions = {}): Promise<T> {
+    const { background = false, retries = 1 } = options;
+
+    for (let attempt = 0; ; attempt += 1) {
+      const until = this.gate.blockedUntil(background, Date.now());
+
+      if (until !== null) throw new CsfloatPausedError(url, until);
+
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          ...(this.config.apiKey ? { Authorization: this.config.apiKey } : {}),
+        },
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+
+      this.gate.record(
+        {
+          limit: response.headers.get('x-ratelimit-limit'),
+          remaining: response.headers.get('x-ratelimit-remaining'),
+          reset: response.headers.get('x-ratelimit-reset'),
+        },
+        response.status,
+        Date.now(),
+      );
+
+      if (response.ok) return (await response.json()) as T;
+
+      const body = await response.text().catch(() => '');
+
+      if (response.status === TOO_MANY_REQUESTS) {
+        throw new CsfloatPausedError(url, this.gate.blockedUntil(false, Date.now()) ?? Date.now());
+      }
+
+      if (response.status < SERVER_ERROR_FLOOR || attempt >= retries) {
+        throw new UpstreamError(url, response.status, body);
+      }
+    }
+  }
+
   async fetchPrices(): Promise<Map<string, CsfloatPrice>> {
-    const rows = await fetchJson<RawCsfloatPrice[]>(PRICE_LIST_URL, {
-      headers: this.config.apiKey ? { Authorization: this.config.apiKey } : undefined,
-    });
+    const rows = await this.call<RawCsfloatPrice[]>(PRICE_LIST_URL);
 
     return new Map(
       rows
@@ -191,9 +265,8 @@ export class CsfloatClient {
       query.set('sticker_option', 'skins');
     }
 
-    const response = await fetchJson<RawCsfloatListing[] | RawCsfloatResponse>(
+    const response = await this.call<RawCsfloatListing[] | RawCsfloatResponse>(
       `${LISTINGS_URL}?${query}`,
-      { headers: { Authorization: this.config.apiKey } },
     );
     const contains = search.nameContains?.toLowerCase();
     const prefix = search.namePrefix?.toLowerCase();
@@ -219,7 +292,10 @@ export class CsfloatClient {
       }));
   }
 
-  async searchListings(search: CsfloatListingSearch): Promise<CsfloatListing[]> {
+  async searchListings(
+    search: CsfloatListingSearch,
+    options: CallOptions = {},
+  ): Promise<CsfloatListing[]> {
     const query = new URLSearchParams({
       market_hash_name: search.name,
       limit: String(MAX_LISTINGS),
@@ -235,11 +311,9 @@ export class CsfloatClient {
       if (paintIndex !== null) query.set('paint_index', String(paintIndex));
     }
 
-    const response = await fetchJson<RawCsfloatListing[] | RawCsfloatResponse>(
+    const response = await this.call<RawCsfloatListing[] | RawCsfloatResponse>(
       `${LISTINGS_URL}?${query}`,
-      {
-        headers: { Authorization: this.config.apiKey },
-      },
+      options,
     );
     const rows = unwrapCsfloatListings(response);
 
@@ -255,7 +329,10 @@ export class CsfloatClient {
       .filter((row) => !search.phase || row.phase === search.phase);
   }
 
-  async searchPatternListings(search: CsfloatPatternSearch): Promise<CsfloatPatternListing[]> {
+  async searchPatternListings(
+    search: CsfloatPatternSearch,
+    options: CallOptions = {},
+  ): Promise<CsfloatPatternListing[]> {
     const query = new URLSearchParams({
       def_index: String(search.defIndex),
       paint_index: String(search.paintIndex),
@@ -264,9 +341,9 @@ export class CsfloatClient {
       sort_by: 'lowest_price',
       type: 'buy_now',
     });
-    const response = await fetchJson<RawCsfloatListing[] | RawCsfloatResponse>(
+    const response = await this.call<RawCsfloatListing[] | RawCsfloatResponse>(
       `${LISTINGS_URL}?${query}`,
-      { headers: { Authorization: this.config.apiKey }, retries: 0 },
+      { retries: 0, ...options },
     );
 
     return unwrapCsfloatListings(response)
@@ -282,10 +359,23 @@ export class CsfloatClient {
       }));
   }
 
-  async fetchRecentSales(name: string): Promise<CsfloatSale[]> {
-    const rows = await fetchJson<RawCsfloatSale[]>(
+  async listing(id: string): Promise<CsfloatLot> {
+    const row = await this.call<RawCsfloatListing>(`${LISTINGS_URL}/${encodeURIComponent(id)}`);
+
+    return {
+      name: row.item.market_hash_name,
+      price: row.price,
+      float: Number.isFinite(row.item.float_value) ? row.item.float_value : null,
+      paintSeed: Number.isInteger(row.item.paint_seed) ? row.item.paint_seed : null,
+      stickers: (row.item.stickers ?? []).map((sticker) => toStickerItemName(sticker.name)),
+      image: imageUrl(row.item.icon_url),
+    };
+  }
+
+  async fetchRecentSales(name: string, options: CallOptions = {}): Promise<CsfloatSale[]> {
+    const rows = await this.call<RawCsfloatSale[]>(
       `${HISTORY_URL}/${encodeURIComponent(name)}/sales`,
-      { headers: { Authorization: this.config.apiKey }, retries: 0 },
+      { retries: 0, ...options },
     );
 
     return (Array.isArray(rows) ? rows : []).flatMap((row) => {
@@ -308,7 +398,7 @@ export class CsfloatClient {
     });
   }
 
-  async fetchDailySales(name: string): Promise<DailySales[]> {
+  async fetchDailySales(name: string, options: CallOptions = {}): Promise<DailySales[]> {
     const { marketHashName, phase } = parseVariantName(name);
     const phases =
       phase !== null ? [phase] : hasDopplerPhases(marketHashName) ? COMMON_DOPPLER_PHASES : [null];
@@ -317,6 +407,7 @@ export class CsfloatClient {
         this.fetchGraph(
           marketHashName,
           entry === null ? null : paintIndexForPhase(marketHashName, entry),
+          options,
         ),
       ),
     );
@@ -324,11 +415,15 @@ export class CsfloatClient {
     return mergeDailySales(series);
   }
 
-  private async fetchGraph(name: string, paintIndex: number | null): Promise<DailySales[]> {
+  private async fetchGraph(
+    name: string,
+    paintIndex: number | null,
+    options: CallOptions,
+  ): Promise<DailySales[]> {
     const query = paintIndex === null ? '' : `?paint_index=${paintIndex}`;
-    const rows = await fetchJson<RawCsfloatDay[]>(
+    const rows = await this.call<RawCsfloatDay[]>(
       `${HISTORY_URL}/${encodeURIComponent(name)}/graph${query}`,
-      { headers: { Authorization: this.config.apiKey }, retries: 1 },
+      options,
     );
     const since = new Date(Date.now() - HISTORY_DAYS * DAY_MS).toISOString().slice(0, 10);
 
@@ -342,17 +437,20 @@ export class CsfloatClient {
   }
 
   private async resolveStickerIds(names: string[]): Promise<number[]> {
-    this.stickerIds ??= fetchJson<RawCsfloatSchema>('https://csfloat.com/api/v1/schema', {
-      headers: { Authorization: this.config.apiKey },
-    }).then(
-      (schema) =>
-        new Map(
-          Object.entries(schema.stickers).map(([id, sticker]) => [
-            sticker.market_hash_name.toLowerCase(),
-            Number(id),
-          ]),
-        ),
-    );
+    this.stickerIds ??= this.call<RawCsfloatSchema>('https://csfloat.com/api/v1/schema')
+      .then(
+        (schema) =>
+          new Map(
+            Object.entries(schema.stickers).map(([id, sticker]) => [
+              sticker.market_hash_name.toLowerCase(),
+              Number(id),
+            ]),
+          ),
+      )
+      .catch((error: unknown) => {
+        this.stickerIds = null;
+        throw error;
+      });
     const ids = await this.stickerIds;
 
     return names

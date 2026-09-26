@@ -431,7 +431,10 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
     try {
       for (const title of titles) {
         try {
-          const listings = await this.csfloatClient.searchListings({ name: title });
+          const listings = await this.csfloatClient.searchListings(
+            { name: title },
+            { background: true },
+          );
           const byPhase = new Map<string, CsfloatPrice>();
 
           for (const listing of listings) {

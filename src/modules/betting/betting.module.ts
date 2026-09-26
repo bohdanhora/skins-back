@@ -22,5 +22,6 @@ import { SourcePageEntity } from './source-page.entity';
     PandaScoreClient,
     OddsPapiClient,
   ],
+  exports: [BettingService],
 })
 export class BettingModule {}
