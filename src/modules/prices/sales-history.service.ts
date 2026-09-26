@@ -9,13 +9,15 @@ import {
 import { DiskCache } from '../../common/cache/disk-cache';
 import { wait } from '../../common/http/fetch-json';
 import { appConfig, syncConfig, type AppConfig, type SyncConfig } from '../../config/app.config';
-import { type MarketQuote } from '../../domain/comparison';
+import { cheapestPrice, totalListings } from '../../domain/comparison';
 import { parseVariantName } from '../../domain/market-variant';
+import { hasDopplerPhases } from '../../domain/phase-prices';
 import { summarizeSales, type DailySales, type SalesStats } from '../../domain/sales';
 import { DmarketSalesClient } from '../dmarket/dmarket-sales.client';
-import { PriceBoardService, type PricedItem } from './price-board.service';
+import { PriceBoardService } from './price-board.service';
 
 const CACHE_KEY = 'sales';
+const PHASE_AWARE_VERSION = 2;
 const MIN_PRICE_CENTS = 50;
 const MIN_LISTINGS = 5;
 const IDLE_PAUSE_MS = 60_000;
@@ -28,6 +30,7 @@ const CHART_CACHE_SIZE = 300;
 interface StoredStats {
   stats: SalesStats | null;
   fetchedAt: number;
+  version?: number;
 }
 
 export interface SalesScanProgress {
@@ -35,19 +38,9 @@ export interface SalesScanProgress {
   total: number;
 }
 
-const listed = (quote: MarketQuote | null): number | null =>
-  quote && quote.listings > 0 ? quote.price : null;
+const cheapest = cheapestPrice;
 
-const cheapest = (item: PricedItem): number | null => {
-  const prices = [listed(item.whiteMarket), listed(item.dmarket), listed(item.csfloat)].filter(
-    (price): price is number => price !== null,
-  );
-
-  return prices.length > 0 ? Math.min(...prices) : null;
-};
-
-const supply = (item: PricedItem): number =>
-  (item.whiteMarket?.listings ?? 0) + (item.dmarket?.listings ?? 0) + (item.csfloat?.listings ?? 0);
+const supply = totalListings;
 
 @Injectable()
 export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -96,7 +89,11 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
     }
 
     this.charts.set(name, { days, fetchedAt: Date.now() });
-    this.stats.set(name, { stats: summarizeSales(days), fetchedAt: Date.now() });
+    this.stats.set(name, {
+      stats: summarizeSales(days),
+      fetchedAt: Date.now(),
+      version: PHASE_AWARE_VERSION,
+    });
 
     return days;
   }
@@ -105,7 +102,13 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
     const cached = await this.cache.read<Record<string, StoredStats>>(CACHE_KEY);
 
     if (cached) {
-      this.stats = new Map(Object.entries(cached.value));
+      this.stats = new Map(
+        Object.entries(cached.value).filter(
+          ([name, stored]) =>
+            (stored.version ?? 1) >= PHASE_AWARE_VERSION ||
+            !hasDopplerPhases(parseVariantName(name).marketHashName),
+        ),
+      );
       this.logger.log(`Sales history restored from disk: ${this.stats.size} items`);
     }
 
@@ -129,14 +132,22 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
       try {
         const days = await this.sales.fetchDaily(next, 'background');
 
-        this.stats.set(next, { stats: summarizeSales(days), fetchedAt: Date.now() });
+        this.stats.set(next, {
+          stats: summarizeSales(days),
+          fetchedAt: Date.now(),
+          version: PHASE_AWARE_VERSION,
+        });
         this.sinceSave += 1;
 
         if (this.sinceSave >= SAVE_EVERY) {
           await this.persist();
         }
       } catch (error) {
-        this.stats.set(next, { stats: this.get(next), fetchedAt: Date.now() });
+        this.stats.set(next, {
+          stats: this.get(next),
+          fetchedAt: Date.now(),
+          version: PHASE_AWARE_VERSION,
+        });
         this.logger.warn(`Sales history for "${next}" failed: ${String(error)}`);
         await wait(ERROR_PAUSE_MS);
       }
@@ -163,12 +174,7 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
       .filter((item) => {
         const price = cheapest(item);
 
-        return (
-          !parseVariantName(item.name).phase &&
-          price !== null &&
-          price >= MIN_PRICE_CENTS &&
-          supply(item) >= MIN_LISTINGS
-        );
+        return price !== null && price >= MIN_PRICE_CENTS && supply(item) >= MIN_LISTINGS;
       })
       .sort((left, right) => supply(right) - supply(left))
       .map((item) => item.name);

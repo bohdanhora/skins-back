@@ -7,13 +7,18 @@ import {
 } from '@nestjs/common';
 
 import { DiskCache } from '../../common/cache/disk-cache';
+import { wait } from '../../common/http/fetch-json';
 import { appConfig, syncConfig, type AppConfig, type SyncConfig } from '../../config/app.config';
-import { type MarketQuote } from '../../domain/comparison';
+import { type MarketQuote, type MarketQuotes } from '../../domain/comparison';
 import { csfloatItemUrl, dmarketItemUrl } from '../../domain/market-links';
-import { parseVariantName } from '../../domain/market-variant';
+import { parseVariantName, variantName } from '../../domain/market-variant';
+import { hasDopplerPhases, summarizePhaseDepth, type PhaseQuote } from '../../domain/phase-prices';
 import { CatalogService } from '../catalog/catalog.service';
+import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
+import { type RequestPriority } from '../dmarket/dmarket-rate-limiter';
 import { DmarketPricesClient, type DmarketPrice } from '../dmarket/dmarket-prices.client';
 import { CsfloatClient, type CsfloatPrice } from '../csfloat/csfloat.client';
+import { LisSkinsClient, type LisSkinsPrice } from '../lis-skins/lis-skins.client';
 import {
   WhiteMarketExportClient,
   type WhiteMarketPrice,
@@ -21,12 +26,10 @@ import {
 
 const CACHE_KEY = 'prices';
 const RETRY_AFTER_FAILURE_MS = 60_000;
+const CSFLOAT_PHASE_PAUSE_MS = 1_500;
 
-export interface PricedItem {
+export interface PricedItem extends MarketQuotes {
   name: string;
-  whiteMarket: MarketQuote | null;
-  dmarket: MarketQuote | null;
-  csfloat: MarketQuote | null;
 }
 
 export interface MarketSyncState {
@@ -40,9 +43,12 @@ interface Snapshot {
   whiteMarket: Record<string, WhiteMarketPrice>;
   dmarket: Record<string, DmarketPrice>;
   csfloat?: Record<string, CsfloatPrice>;
+  dmarketPhases?: Record<string, PhaseQuote>;
+  lisSkins?: Record<string, LisSkinsPrice>;
   whiteMarketAt: string | null;
   dmarketAt: string | null;
   csfloatAt?: string | null;
+  lisSkinsAt?: string | null;
 }
 
 @Injectable()
@@ -52,12 +58,16 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   private whiteMarket = new Map<string, WhiteMarketPrice>();
   private dmarket = new Map<string, DmarketPrice>();
   private csfloat = new Map<string, CsfloatPrice>();
+  private dmarketPhases = new Map<string, PhaseQuote>();
+  private lisSkins = new Map<string, LisSkinsPrice>();
   private items: PricedItem[] = [];
   private byName = new Map<string, PricedItem>();
   private whiteMarketState: MarketSyncState = { updatedAt: null, items: 0, error: null };
   private dmarketState: MarketSyncState = { updatedAt: null, items: 0, error: null };
   private csfloatState: MarketSyncState = { updatedAt: null, items: 0, error: null };
+  private lisSkinsState: MarketSyncState = { updatedAt: null, items: 0, error: null };
   private refreshing: Promise<void> | null = null;
+  private csfloatPhasesRunning = false;
   private timer: NodeJS.Timeout | null = null;
   private currentVersion = 0;
 
@@ -67,7 +77,9 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
     private readonly catalog: CatalogService,
     private readonly whiteMarketExport: WhiteMarketExportClient,
     private readonly dmarketPrices: DmarketPricesClient,
+    private readonly dmarketDepth: DmarketDepthClient,
     private readonly csfloatClient: CsfloatClient,
+    private readonly lisSkinsClient: LisSkinsClient,
   ) {
     this.cache = new DiskCache(app.cacheDir);
   }
@@ -84,11 +96,13 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
     whiteMarket: MarketSyncState;
     dmarket: MarketSyncState;
     csfloat: MarketSyncState;
+    lisSkins: MarketSyncState;
   } {
     return {
       whiteMarket: this.whiteMarketState,
       dmarket: this.dmarketState,
       csfloat: this.csfloatState,
+      lisSkins: this.lisSkinsState,
     };
   }
 
@@ -122,8 +136,10 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   async refreshItem(name: string): Promise<PricedItem | undefined> {
     const { marketHashName, phase } = parseVariantName(name);
     const [fresh, csfloatListings] = await Promise.all([
-      phase
-        ? Promise.resolve(new Map<string, DmarketPrice>())
+      hasDopplerPhases(marketHashName)
+        ? this.refreshPhases([marketHashName], 'interactive').then(
+            () => new Map<string, DmarketPrice>(),
+          )
         : this.dmarketPrices.fetchPrices([marketHashName]),
       this.csfloatClient.isEnabled
         ? this.csfloatClient.searchListings({ name: marketHashName, phase })
@@ -179,7 +195,15 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
     }
 
     try {
-      this.csfloat = await this.csfloatClient.fetchPrices();
+      const csfloat = await this.csfloatClient.fetchPrices();
+
+      for (const [name, price] of this.csfloat) {
+        if (parseVariantName(name).phase && !csfloat.has(name)) {
+          csfloat.set(name, price);
+        }
+      }
+
+      this.csfloat = csfloat;
       this.csfloatState = {
         updatedAt: new Date().toISOString(),
         items: this.csfloat.size,
@@ -189,6 +213,19 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
     } catch (error) {
       this.csfloatState = { ...this.csfloatState, error: String(error) };
       this.logger.warn(`CSFloat prices failed: ${String(error)}`);
+    }
+
+    try {
+      this.lisSkins = await this.lisSkinsClient.fetchPrices();
+      this.lisSkinsState = {
+        updatedAt: new Date().toISOString(),
+        items: this.lisSkins.size,
+        error: null,
+      };
+      this.rebuild();
+    } catch (error) {
+      this.lisSkinsState = { ...this.lisSkinsState, error: String(error) };
+      this.logger.warn(`lis-skins prices failed: ${String(error)}`);
     }
 
     const names = [
@@ -211,6 +248,9 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
       this.logger.warn(`DMarket prices failed: ${String(error)}`);
     }
 
+    await this.refreshPhases([...this.dmarket.keys()].filter(hasDopplerPhases), 'background');
+    void this.refreshCsfloatPhases();
+
     await this.persist();
     this.logger.log(
       `Prices refreshed in ${Math.round((Date.now() - started) / 1000)}s: ${this.items.length} items`,
@@ -221,7 +261,9 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
     const names = new Set([
       ...this.whiteMarket.keys(),
       ...this.dmarket.keys(),
+      ...this.dmarketPhases.keys(),
       ...this.csfloat.keys(),
+      ...this.lisSkins.keys(),
     ]);
     const items: PricedItem[] = [];
 
@@ -229,9 +271,10 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
       const whiteMarket = this.toWhiteMarketQuote(name);
       const dmarket = this.toDmarketQuote(name);
       const csfloat = this.toCsfloatQuote(name);
+      const lisSkins = this.toLisSkinsQuote(name);
 
-      if (whiteMarket || dmarket || csfloat) {
-        items.push({ name, whiteMarket, dmarket, csfloat });
+      if (whiteMarket || dmarket || csfloat || lisSkins) {
+        items.push({ name, whiteMarket, dmarket, csfloat, lisSkins });
       }
     }
 
@@ -249,13 +292,16 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   }
 
   private toDmarketQuote(name: string): MarketQuote | null {
-    const price = this.dmarket.get(name);
+    const variant = parseVariantName(name);
+    const price =
+      this.dmarketPhases.get(name) ??
+      (variant.phase || hasDopplerPhases(name) ? undefined : this.dmarket.get(name));
 
     if (!price || (price.listings === 0 && price.bids === 0)) {
       return null;
     }
 
-    return { ...price, url: dmarketItemUrl(name) };
+    return { ...price, url: dmarketItemUrl(variant.marketHashName) };
   }
 
   private toCsfloatQuote(name: string): MarketQuote | null {
@@ -274,6 +320,94 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
       : null;
   }
 
+  private toLisSkinsQuote(name: string): MarketQuote | null {
+    const price = this.lisSkins.get(name);
+
+    return price
+      ? { price: price.price, listings: price.listings, bid: null, bids: 0, url: price.url }
+      : null;
+  }
+
+  private async refreshCsfloatPhases(): Promise<void> {
+    if (!this.csfloatClient.isEnabled || this.csfloatPhasesRunning) {
+      return;
+    }
+
+    this.csfloatPhasesRunning = true;
+    const titles = [...this.csfloat.keys()].filter(
+      (name) => !parseVariantName(name).phase && hasDopplerPhases(name),
+    );
+    let found = 0;
+
+    try {
+      for (const title of titles) {
+        try {
+          const listings = await this.csfloatClient.searchListings({ name: title });
+          const byPhase = new Map<string, CsfloatPrice>();
+
+          for (const listing of listings) {
+            if (!listing.phase) continue;
+
+            const key = variantName(title, listing.phase);
+            const current = byPhase.get(key);
+
+            byPhase.set(key, {
+              price: Math.min(current?.price ?? Infinity, listing.price),
+              listings: (current?.listings ?? 0) + 1,
+              url: current && current.price <= listing.price ? current.url : listing.url,
+            });
+          }
+
+          for (const [key, price] of byPhase) {
+            this.csfloat.set(key, price);
+          }
+
+          found += byPhase.size;
+        } catch (error) {
+          this.logger.warn(`CSFloat phases for "${title}" failed: ${String(error)}`);
+        }
+
+        await wait(CSFLOAT_PHASE_PAUSE_MS);
+      }
+
+      this.rebuild();
+      this.logger.log(`CSFloat phase prices: ${found} phases in ${titles.length} titles`);
+    } finally {
+      this.csfloatPhasesRunning = false;
+    }
+  }
+
+  private async refreshPhases(titles: string[], priority: RequestPriority): Promise<void> {
+    let failed = 0;
+
+    for (const title of titles) {
+      try {
+        const { offers, orders } = await this.dmarketDepth.fetch(title, priority);
+        const { common, phases } = summarizePhaseDepth(offers, orders);
+
+        for (const key of [...this.dmarketPhases.keys()]) {
+          if (parseVariantName(key).marketHashName === title) {
+            this.dmarketPhases.delete(key);
+          }
+        }
+
+        this.dmarketPhases.set(title, common);
+
+        for (const [phase, quote] of phases) {
+          this.dmarketPhases.set(variantName(title, phase), quote);
+        }
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(`DMarket phases for "${title}" failed: ${String(error)}`);
+      }
+    }
+
+    if (titles.length > 0) {
+      this.rebuild();
+      this.logger.log(`DMarket phase prices: ${titles.length - failed}/${titles.length} titles`);
+    }
+  }
+
   private async restore(): Promise<void> {
     const cached = await this.cache.read<Snapshot>(CACHE_KEY);
 
@@ -289,6 +423,13 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
         : new Map<string, WhiteMarketPrice>();
     this.dmarket = new Map(Object.entries(value.dmarket));
     this.csfloat = new Map(Object.entries(value.csfloat ?? {}));
+    this.dmarketPhases = new Map(Object.entries(value.dmarketPhases ?? {}));
+    this.lisSkins = new Map(Object.entries(value.lisSkins ?? {}));
+    this.lisSkinsState = {
+      updatedAt: value.lisSkinsAt ?? null,
+      items: this.lisSkins.size,
+      error: null,
+    };
     this.whiteMarketState = {
       updatedAt: value.whiteMarketAt,
       items: this.whiteMarket.size,
@@ -315,6 +456,9 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
         whiteMarket: Object.fromEntries(this.whiteMarket),
         dmarket: Object.fromEntries(this.dmarket),
         csfloat: Object.fromEntries(this.csfloat),
+        dmarketPhases: Object.fromEntries(this.dmarketPhases),
+        lisSkins: Object.fromEntries(this.lisSkins),
+        lisSkinsAt: this.lisSkinsState.updatedAt,
         whiteMarketAt: this.whiteMarketState.updatedAt,
         dmarketAt: this.dmarketState.updatedAt,
         csfloatAt: this.csfloatState.updatedAt,
