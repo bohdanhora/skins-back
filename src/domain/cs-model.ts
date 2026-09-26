@@ -132,10 +132,15 @@ export interface VetoAction {
   map: string;
 }
 
+export type Preference = (team: 1 | 2, map: string) => number;
+
+const noPreference: Preference = () => 0;
+
 export const predictVeto = (
   pool: string[],
   bestOf: 1 | 3 | 5,
   chance: (map: string) => number,
+  preference: Preference = noPreference,
 ): { maps: PlannedMap[]; actions: VetoAction[] } => {
   const remaining = [...pool];
   const maps: PlannedMap[] = [];
@@ -145,7 +150,8 @@ export const predictVeto = (
     if (remaining.length <= 1) return;
 
     const team: 1 | 2 = index % 2 === 0 ? 1 : 2;
-    const own = (map: string) => (team === 1 ? chance(map) : 1 - chance(map));
+    const own = (map: string) =>
+      (team === 1 ? chance(map) : 1 - chance(map)) + preference(team, map);
     const ranked = [...remaining].sort((left, right) => own(left) - own(right));
     const map = step === 'ban' ? ranked[0] : ranked[ranked.length - 1];
 
@@ -162,6 +168,66 @@ export const predictVeto = (
   }
 
   return { maps: maps.slice(0, bestOf), actions };
+};
+
+export interface MapHabits {
+  total: number;
+  shares: Map<string, number>;
+}
+
+const HABIT_DAYS = 180;
+const HABIT_MIN_MAPS = 10;
+const PERMABAN_MIN_MAPS = 20;
+const HABIT_WEIGHT = 0.6;
+const PERMABAN = -1;
+
+export const mapHabits = (
+  results: MapResult[],
+  now: number,
+  pool: string[],
+): Map<string, MapHabits> => {
+  const since = now - HABIT_DAYS * 86_400_000;
+  const counts = new Map<string, Map<string, number>>();
+  const inPool = new Set(pool);
+
+  for (const result of results) {
+    if (Date.parse(result.playedAt) < since || !inPool.has(result.map)) continue;
+
+    for (const team of [result.team1, result.team2]) {
+      const byMap = counts.get(team) ?? new Map<string, number>();
+
+      byMap.set(result.map, (byMap.get(result.map) ?? 0) + 1);
+      counts.set(team, byMap);
+    }
+  }
+
+  return new Map(
+    [...counts.entries()].map(([team, byMap]) => {
+      const total = [...byMap.values()].reduce((sum, count) => sum + count, 0);
+
+      return [
+        team,
+        {
+          total,
+          shares: new Map([...byMap.entries()].map(([map, count]) => [map, count / total])),
+        },
+      ];
+    }),
+  );
+};
+
+export const habitPreference = (
+  habits: MapHabits | undefined,
+  map: string,
+  poolSize: number,
+): number => {
+  if (!habits || habits.total < HABIT_MIN_MAPS) return 0;
+
+  const share = habits.shares.get(map) ?? 0;
+
+  if (share === 0 && habits.total >= PERMABAN_MIN_MAPS) return PERMABAN;
+
+  return HABIT_WEIGHT * (share - 1 / poolSize);
 };
 
 export interface SeriesOutlook {

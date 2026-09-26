@@ -3,6 +3,16 @@ import { ApiProperty } from '@nestjs/swagger';
 import type { MarketKind } from '../../../domain/cs-markets';
 import type { VetoStep } from '../../../domain/cs-model';
 
+export class MapHabitDto {
+  map!: string;
+
+  @ApiProperty({ description: 'Share of the team maps played on this map over half a year' })
+  share!: number;
+
+  @ApiProperty({ description: 'Never played with enough history, treated as a permanent ban' })
+  permaban!: boolean;
+}
+
 export class TeamForecastDto {
   name!: string;
 
@@ -19,6 +29,9 @@ export class TeamForecastDto {
 
   @ApiProperty({ description: 'Maps from big tournaments the model knows for this team' })
   mapGames!: number;
+
+  @ApiProperty({ type: [MapHabitDto], description: 'Active pool maps, most played first' })
+  habits!: MapHabitDto[];
 }
 
 export class MapRecordDto {

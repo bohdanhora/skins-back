@@ -2,7 +2,9 @@ import {
   activeMapPool,
   buildRatings,
   expectedScore,
+  habitPreference,
   impliedChances,
+  mapHabits,
   mapWinChance,
   predictVeto,
   seriesOutlook,
@@ -73,6 +75,43 @@ describe('cs model', () => {
       ['Train', 2],
       ['Dust2', null],
     ]);
+  });
+
+  it('learns which maps a team plays and which it never touches', () => {
+    const now = Date.parse('2026-09-30T00:00:00Z');
+    const pool = ['Ancient', 'Anubis', 'Dust2', 'Inferno', 'Mirage', 'Nuke', 'Train'];
+    const played = [
+      'Nuke',
+      'Nuke',
+      'Nuke',
+      'Nuke',
+      'Nuke',
+      'Mirage',
+      'Inferno',
+      'Dust2',
+      'Ancient',
+      'Train',
+    ];
+    const results = [...played, ...played].map((map, index) =>
+      result('A', `X${index}`, map, 1, (index % 20) + 1),
+    );
+    const habits = mapHabits(results, now, pool);
+
+    expect(habits.get('A')?.total).toBe(20);
+    expect(habitPreference(habits.get('A'), 'Nuke', 7)).toBeGreaterThan(0.2);
+    expect(habitPreference(habits.get('A'), 'Anubis', 7)).toBe(-1);
+    expect(habitPreference(habits.get('B'), 'Nuke', 7)).toBe(0);
+  });
+
+  it('lets habits steer the veto', () => {
+    const pool = ['Ancient', 'Anubis', 'Dust2', 'Inferno', 'Mirage', 'Nuke', 'Train'];
+    const even = () => 0.5;
+    const preference = (team: 1 | 2, map: string) =>
+      team === 1 ? (map === 'Anubis' ? -1 : map === 'Train' ? 0.3 : 0) : 0;
+    const { actions, maps } = predictVeto(pool, 3, even, preference);
+
+    expect(actions[0]).toEqual({ team: 1, step: 'ban', map: 'Anubis' });
+    expect(maps[0]).toMatchObject({ map: 'Train', pickedBy: 1 });
   });
 
   it('plays only the decider in a best of one', () => {

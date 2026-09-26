@@ -13,11 +13,14 @@ import {
 import {
   activeMapPool,
   buildRatings,
+  habitPreference,
+  mapHabits,
   mapWinChance,
   predictVeto,
   priorFromPoints,
   seriesOutlook,
   valueOf,
+  type MapHabits,
   type MapResult,
   type Prior,
   type Ratings,
@@ -50,6 +53,7 @@ interface Model {
   ratings: Ratings;
   results: MapResult[];
   pool: string[];
+  habits: Map<string, MapHabits>;
   prior: Prior;
   vrs: Map<string, VrsTeam>;
   standingsDate: string | null;
@@ -131,10 +135,13 @@ export class BettingService {
       winner: row.winner,
     }));
 
+    const pool = activeMapPool(results, Date.now());
+
     return {
       ratings: buildRatings(results, prior),
       results,
-      pool: activeMapPool(results, Date.now()),
+      pool,
+      habits: mapHabits(results, Date.now(), pool),
       prior,
       vrs,
       standingsDate: standings?.date ?? null,
@@ -144,6 +151,7 @@ export class BettingService {
   private team(model: Model, name: string, image: string | null): TeamForecastDto {
     const key = teamKey(name);
     const entry = model.vrs.get(key);
+    const habits = model.habits.get(key);
 
     return {
       name,
@@ -152,6 +160,13 @@ export class BettingService {
       points: entry?.points ?? null,
       roster: entry?.roster ?? [],
       mapGames: model.ratings.games.get(key) ?? 0,
+      habits: model.pool
+        .map((map) => ({
+          map,
+          share: habits?.shares.get(map) ?? 0,
+          permaban: habitPreference(habits, map, model.pool.length) === -1,
+        }))
+        .sort((left, right) => right.share - left.share),
     };
   }
 
@@ -167,8 +182,14 @@ export class BettingService {
     const bestOf = SUPPORTED_BEST_OF.has(match.bestOf) ? (match.bestOf as 1 | 3 | 5) : 3;
     const chance = (map: string) => mapWinChance(model.ratings, first, second, map, model.prior);
     const firstStarts = (team1.rank ?? Infinity) <= (team2.rank ?? Infinity);
-    const veto = predictVeto(model.pool, bestOf, (map) =>
-      firstStarts ? chance(map) : 1 - chance(map),
+    const starter = firstStarts ? first : second;
+    const other = firstStarts ? second : first;
+    const veto = predictVeto(
+      model.pool,
+      bestOf,
+      (map) => (firstStarts ? chance(map) : 1 - chance(map)),
+      (team, map) =>
+        habitPreference(model.habits.get(team === 1 ? starter : other), map, model.pool.length),
     );
     const toFirst = (team: 1 | 2 | null): 1 | 2 | null =>
       team === null ? null : firstStarts ? team : team === 1 ? 2 : 1;
