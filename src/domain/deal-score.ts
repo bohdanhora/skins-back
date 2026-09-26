@@ -1,4 +1,3 @@
-import { type MarketQuote } from './comparison';
 import { type SalesStats, type TopOffer } from './sales';
 
 export type DealConfidence = 'high' | 'medium' | 'low';
@@ -11,19 +10,12 @@ export interface DealScore {
 export const calculateDealScore = (
   top: TopOffer | null,
   sales: SalesStats | null,
-  whiteMarket: MarketQuote | null,
-  dmarket: MarketQuote | null,
-  csfloat: MarketQuote | null,
+  depth: number,
 ): DealScore | null => {
   if (!top || !sales) return null;
 
   const eightWeekSales = sales.eightWeekSales ?? sales.weekSales;
   const bidCover = top.bidCover ?? 0;
-  const depth = Math.max(
-    whiteMarket?.listings ?? 0,
-    dmarket?.listings ?? 0,
-    csfloat?.listings ?? 0,
-  );
   const discountPoints = Math.min(35, top.percent * 1.5);
   const bidPoints = Math.max(0, Math.min(25, ((bidCover - 70) / 30) * 25));
   const liquidityPoints = Math.min(25, Math.log10(eightWeekSales + 1) * 10);

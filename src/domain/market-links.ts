@@ -2,7 +2,16 @@ export enum MarketId {
   WhiteMarket = 'whiteMarket',
   Dmarket = 'dmarket',
   Csfloat = 'csfloat',
+  LisSkins = 'lisSkins',
 }
+
+export type SellMarketId = Exclude<MarketId, MarketId.LisSkins>;
+
+export const SELL_MARKETS: SellMarketId[] = [
+  MarketId.WhiteMarket,
+  MarketId.Dmarket,
+  MarketId.Csfloat,
+];
 
 export const whiteMarketItemUrl = (name: string): string =>
   `https://white.market/item?appId=730&nameHash=${encodeURIComponent(name)}`;

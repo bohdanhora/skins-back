@@ -9,11 +9,13 @@ const item = (name: string, category: ItemCategory, price: number): IndexedItem 
   rarity: null,
   rarityColor: null,
   category,
+  subcategory: null,
   phase: name.includes('[Sapphire]') ? 'sapphire' : null,
   collections: [],
   whiteMarket: { price, listings: 2, bid: null, bids: 0, url: '' },
   dmarket: null,
   csfloat: null,
+  lisSkins: null,
 });
 
 describe('item library', () => {

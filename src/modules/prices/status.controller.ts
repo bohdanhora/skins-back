@@ -24,6 +24,7 @@ export class StatusDto {
   whiteMarket!: MarketStatusDto;
   dmarket!: MarketStatusDto;
   csfloat!: MarketStatusDto;
+  lisSkins!: MarketStatusDto;
   refreshing!: boolean;
   comparedItems!: number;
   catalogItems!: number;
@@ -47,13 +48,14 @@ export class StatusController {
   @ApiOperation({ summary: 'Freshness of prices and which optional keys are set' })
   @ApiOkResponse({ type: StatusDto })
   status(): StatusDto {
-    const { whiteMarket, dmarket, csfloat } = this.board.state;
+    const { whiteMarket, dmarket, csfloat, lisSkins } = this.board.state;
     const progress = this.sales.progress();
 
     return {
       whiteMarket: { ...whiteMarket, keysConfigured: this.whiteMarketSettings.isPartnerEnabled },
       dmarket: { ...dmarket, keysConfigured: this.dmarketSettings.isTradingEnabled },
       csfloat: { ...csfloat, keysConfigured: this.csfloatSettings.isEnabled },
+      lisSkins: { ...lisSkins, keysConfigured: false },
       refreshing: this.board.isRefreshing,
       comparedItems: this.board.all().length,
       catalogItems: this.catalog.size,

@@ -1,6 +1,8 @@
 import { ItemCategory } from '../../domain/categories';
+import { cheapestPrice } from '../../domain/comparison';
 import { parseVariantName } from '../../domain/market-variant';
 import { type IndexedItem } from './item-index.service';
+import { isPhaseSummary } from './item-query';
 import { type ItemLibraryDto, type ItemLibraryQueryDto } from './dto/item-library.dto';
 
 const LIBRARY_CATEGORIES = new Set([
@@ -22,13 +24,7 @@ interface LibraryRow {
   price: number | null;
 }
 
-const priceOf = (item: IndexedItem): number | null => {
-  const prices = [item.whiteMarket, item.dmarket, item.csfloat]
-    .filter((quote) => quote && quote.listings > 0 && quote.price !== null)
-    .map((quote) => quote!.price!);
-
-  return prices.length > 0 ? Math.min(...prices) : null;
-};
+const priceOf = (item: IndexedItem): number | null => cheapestPrice(item);
 
 const partsOf = (name: string): { weapon: string; skin: string } | null => {
   const { marketHashName } = parseVariantName(name);
@@ -47,7 +43,7 @@ const partsOf = (name: string): { weapon: string; skin: string } | null => {
 
 const toRows = (items: readonly IndexedItem[]): LibraryRow[] =>
   items.flatMap((item) => {
-    if (!LIBRARY_CATEGORIES.has(item.category)) return [];
+    if (!LIBRARY_CATEGORIES.has(item.category) || isPhaseSummary(item)) return [];
 
     const parts = partsOf(item.name);
 

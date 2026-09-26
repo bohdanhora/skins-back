@@ -15,6 +15,7 @@ import {
   type FloatSnipe,
   type SnipeCandidate,
 } from '../../domain/float-snipes';
+import { cheapestPrice } from '../../domain/comparison';
 import { parseVariantName } from '../../domain/market-variant';
 import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
 import { CsfloatClient } from '../csfloat/csfloat.client';
@@ -43,13 +44,7 @@ export interface SnipeScanProgress {
   total: number;
 }
 
-const cheapest = (item: PricedItem): number | null => {
-  const prices = [item.whiteMarket, item.dmarket, item.csfloat]
-    .filter((quote) => quote && quote.listings > 0 && quote.price !== null)
-    .map((quote) => quote!.price!);
-
-  return prices.length > 0 ? Math.min(...prices) : null;
-};
+const cheapest = (item: PricedItem): number | null => cheapestPrice(item);
 
 @Injectable()
 export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModuleDestroy {

@@ -1,7 +1,5 @@
 import { calculateDealScore } from './deal-score';
 
-const quote = (listings: number) => ({ price: 100, listings, bid: 95, bids: 2, url: '' });
-
 describe('deal score', () => {
   it('rewards a real discount, liquid sales and a close buy order', () => {
     const strong = calculateDealScore(
@@ -15,16 +13,12 @@ describe('deal score', () => {
         eightWeekAverage: 128,
         trendPercent: 2,
       },
-      quote(10),
-      quote(15),
-      null,
+      15,
     );
     const weak = calculateDealScore(
       { price: 100, reference: 105, discount: 5, percent: 4.8, bidCover: 50 },
       { floor: 105, lastDay: '2026-09-25', lastAverage: 105, weekSales: 1 },
-      quote(1),
-      null,
-      null,
+      1,
     );
 
     expect(strong?.confidence).toBe('high');
