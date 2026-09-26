@@ -1,7 +1,7 @@
 # skins-back
 
 API для поиска выгодных скинов CS2 на [white.market](https://white.market), [DMarket](https://dmarket.com),
-[CSFloat](https://csfloat.com) и [Steam Market](https://steamcommunity.com/market/).
+[CSFloat](https://csfloat.com), [lis-skins](https://lis-skins.com) и [Steam Market](https://steamcommunity.com/market/).
 Фронтенд лежит рядом, в `skins-front`.
 
 ## Запуск
@@ -19,18 +19,25 @@ API: `http://localhost:4100/api`, документация Swagger: `http://loca
 
 ## Откуда берутся цены
 
-| Что                                 | Источник                                                               | Ключ     |
-| ----------------------------------- | ---------------------------------------------------------------------- | -------- |
-| Самая низкая цена на white.market   | `export.white.market/v1/prices/730.json`                               | не нужен |
-| Цена и лучшая заявка на DMarket     | `POST /marketplace-api/v1/aggregated-prices`, по 200 названий за раз   | не нужен |
-| Минимальная цена и количество CSFloat | CSFloat API `GET /v1/listings/price-list`                            | не нужен |
-| История продаж по дням на DMarket   | `GET /trade-aggregator/v1/avg-sales-graph`                             | не нужен |
-| Все лоты DMarket с флоатом и заявки | `GET /marketplace-api/v1/market-depth`                                 | не нужен |
-| Картинки, редкость, коллекции       | [ByMykel/CSGO-API](https://github.com/ByMykel/CSGO-API)                | не нужен |
-| Лоты с флоатом и наклейками         | white.market, DMarket и CSFloat API                                    | нужен    |
-| Поиск скинов по наклейкам           | API всех трёх площадок                                                  | нужен    |
-| Лоты CSFloat с точным флоатом       | CSFloat API `GET /v1/listings`                                         | нужен    |
-| Лоты Steam с флоатом и паттерном    | Серверная выдача Steam Market                                          | не нужен |
+| Что                                   | Источник                                                                   | Ключ     |
+| ------------------------------------- | -------------------------------------------------------------------------- | -------- |
+| Самая низкая цена на white.market     | `export.white.market/v1/prices/730.json`                                   | не нужен |
+| Цена и лучшая заявка на DMarket       | `POST /marketplace-api/v1/aggregated-prices`, по 200 названий за раз       | не нужен |
+| Минимальная цена и количество CSFloat | CSFloat API `GET /v1/listings/price-list`                                  | не нужен |
+| История продаж по дням на DMarket     | `GET /trade-aggregator/v1/avg-sales-graph`                                 | не нужен |
+| Все лоты DMarket с флоатом и заявки   | `GET /marketplace-api/v1/market-depth`                                     | не нужен |
+| Картинки, редкость, коллекции         | [ByMykel/CSGO-API](https://github.com/ByMykel/CSGO-API)                    | не нужен |
+| Лоты с флоатом и наклейками           | white.market, DMarket и CSFloat API                                        | нужен    |
+| Поиск скинов по наклейкам             | API всех трёх площадок                                                     | нужен    |
+| Лоты CSFloat с точным флоатом         | CSFloat API `GET /v1/listings`                                             | нужен    |
+| Лоты Steam с флоатом и паттерном      | Серверная выдача Steam Market                                              | не нужен |
+| Цена и количество на lis-skins        | `lis-skins.com/market_export_json/csgo.json`                               | не нужен |
+| Цены DMarket по фазам Doppler         | стакан DMarket `market-depth`, фаза есть у каждого лота и заявки           | не нужен |
+| Продажи DMarket по фазе               | `avg-sales-graph` с `filters=phase[]=...`                                  | не нужен |
+| Продажи CSFloat по дням               | CSFloat API `GET /v1/history/{name}/graph` (`paint_index` для фазы)        | нужен    |
+| Продажи white.market по дням          | GraphQL сайта `market_stats_product`, фаза названием (`Sapphire`)          | не нужен |
+| Цена Steam в USD                      | `steamcommunity.com/market/priceoverview`                                  | не нужен |
+| Инвентарь Steam                       | `steamcommunity.com/inventory/{steamid}/730/2`, профиль должен быть открыт | не нужен |
 
 Прайс-листы white.market и CSFloat площадки обновляют сами. DMarket отвечает свежими данными при каждом запросе.
 
@@ -68,8 +75,16 @@ API: `http://localhost:4100/api`, документация Swagger: `http://loca
   У white.market без ключа известен только флоат самого дешёвого лота. CSFloat требует ключ. Steam выводится отдельно,
   поскольку баланс кошелька и наличные USD нельзя считать одной валютой.
 
-- **Фазы**: Ruby, Sapphire, Emerald, Black Pearl и Phase 1-4 индексируются как разные варианты. Обобщённая цена
-  Doppler никогда не формируется из редкой фазы.
+- **Фазы**: Ruby, Sapphire, Emerald, Black Pearl и Phase 1-4 индексируются как разные варианты на всех площадках.
+  Цены DMarket по фазам берутся из стакана, заявки на конкретную фазу не попадают в цену других фаз. История продаж
+  обычного Doppler собирается из Phase 1-4 без редких фаз. CSFloat отдаёт прайс-лист без фаз, поэтому фазы
+  дочитываются фоном из лотов. Обобщённая карточка Doppler в выдачу не попадает.
+- **Где дешевле**: разница считается до следующей по цене площадки, а не до самой дорогой, чтобы одинокий
+  завышенный лот не давал фальшивую скидку.
+- **Инвентарь**: `GET /inventory?profile=...` для каждого предмета считает выплату на каждой площадке: цена на цент
+  ниже самого дешёвого лота, минус комиссия продавца, минус комиссия вывода (`withdrawWhiteMarket`,
+  `withdrawDmarket`, `withdrawCsfloat`). Отдельно продажа в заявку DMarket.
+- **lis-skins** только площадка покупки: в перепродаже и оценке инвентаря продажа туда не предлагается.
 
 - **Скины с наклейками**: `GET /stickers/skins?stickers=...&item=...&sort=deal`. `item` это точное название или его
   часть. Для каждого лота считается доплата к самому дешёвому такому же скину и её доля от цены искомых наклеек
