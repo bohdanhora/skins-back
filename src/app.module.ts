@@ -15,6 +15,7 @@ import {
 } from './config/app.config';
 import { validateEnvironment } from './config/environment';
 import { HealthModule } from './modules/health/health.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { ItemsModule } from './modules/items/items.module';
 import { PricesModule } from './modules/prices/prices.module';
 import { SnipesModule } from './modules/snipes/snipes.module';
@@ -58,6 +59,7 @@ const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
     ItemsModule,
     StickersModule,
     SnipesModule,
+    InventoryModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

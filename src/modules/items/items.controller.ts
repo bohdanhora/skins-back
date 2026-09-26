@@ -2,10 +2,16 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
+import { parseVariantName } from '../../domain/market-variant';
 import { ListingsDto } from '../listings/dto/listings.dto';
+import { SteamMarketClient, type SteamPrice } from '../steam/steam-market.client';
 import { ItemViewDto, ItemsPageDto, SalesChartDto } from './dto/item-view.dto';
 import { ItemsQueryDto } from './dto/items-query.dto';
-import { ItemLibraryQueryDto, type ItemLibraryDto } from './dto/item-library.dto';
+import {
+  ItemLibraryQueryDto,
+  type ItemFacetsDto,
+  type ItemLibraryDto,
+} from './dto/item-library.dto';
 import { FloatSearchDto, FloatSearchQueryDto } from './dto/float-search.dto';
 import { FloatSearchService } from './float-search.service';
 import { ItemsService } from './items.service';
@@ -23,6 +29,7 @@ export class ItemsController {
   constructor(
     private readonly items: ItemsService,
     private readonly floats: FloatSearchService,
+    private readonly steamMarket: SteamMarketClient,
   ) {}
 
   @Get()
@@ -33,7 +40,7 @@ export class ItemsController {
   }
 
   @Get('facets')
-  facets(): { collections: { name: string; image: string | null }[] } {
+  facets(): ItemFacetsDto {
     return this.items.facets();
   }
 
@@ -56,6 +63,15 @@ export class ItemsController {
   @ApiOkResponse({ type: SalesChartDto })
   sales(@Query() query: ItemNameQueryDto): Promise<SalesChartDto> {
     return this.items.salesChart(query.name);
+  }
+
+  @Get('steam')
+  @ApiOperation({
+    summary: 'Steam Market lowest and median price in USD, without the Doppler phase',
+  })
+  @ApiQuery({ name: 'name', required: true })
+  steam(@Query() query: ItemNameQueryDto): Promise<SteamPrice> {
+    return this.steamMarket.priceOverview(parseVariantName(query.name).marketHashName);
   }
 
   @Get('floats')

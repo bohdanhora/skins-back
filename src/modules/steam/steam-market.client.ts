@@ -1,29 +1,45 @@
 import { Injectable } from '@nestjs/common';
-import { decodeHex } from '@csfloat/cs2-inspect-serializer';
 
-import { fetchText } from '../../common/http/fetch-json';
-import { phaseFromPaintIndex, type MarketPhase } from '../../domain/market-variant';
+import { fetchJson, fetchText, wait } from '../../common/http/fetch-json';
+import { type MarketPhase } from '../../domain/market-variant';
+import { readAssetTraits, type RawAssetProperty } from './steam-asset';
 
 const LISTING_URL = 'https://steamcommunity.com/market/listings/730';
 const REQUEST_TIMEOUT_MS = 30_000;
-
-interface RawProperty {
-  propertyid: number;
-  int_value?: string;
-  float_value?: number;
-  string_value?: string;
-}
+const PRICE_OVERVIEW_URL = 'https://steamcommunity.com/market/priceoverview/';
+const PRICE_TTL_MS = 15 * 60_000;
+const PRICE_GAP_MS = 3_000;
 
 interface RawSteamListing {
   listingid: string;
   strSubtotal: string;
   description: { market_hash_name: string };
-  asset: { asset_properties?: RawProperty[] };
+  asset: { asset_properties?: RawAssetProperty[] };
 }
 
 interface RawSteamPage {
   pages: { listings: RawSteamListing[] }[];
 }
+
+interface RawPriceOverview {
+  success?: boolean;
+  lowest_price?: string;
+  median_price?: string;
+  volume?: string;
+}
+
+export interface SteamPrice {
+  lowest: number | null;
+  median: number | null;
+  volume: number;
+  url: string;
+}
+
+const parseUsd = (value: string | undefined): number | null => {
+  const amount = Number((value ?? '').replace(/[^\d.]/g, ''));
+
+  return value && Number.isFinite(amount) && amount > 0 ? Math.round(amount * 100) : null;
+};
 
 export interface SteamListing {
   id: string;
@@ -36,6 +52,39 @@ export interface SteamListing {
 
 @Injectable()
 export class SteamMarketClient {
+  private readonly prices = new Map<string, { price: SteamPrice; at: number }>();
+  private queue: Promise<unknown> = Promise.resolve();
+
+  priceOverview(name: string): Promise<SteamPrice> {
+    const cached = this.prices.get(name);
+
+    if (cached && Date.now() - cached.at < PRICE_TTL_MS) {
+      return Promise.resolve(cached.price);
+    }
+
+    const request = this.queue.then(async () => {
+      const query = new URLSearchParams({ appid: '730', currency: '1', market_hash_name: name });
+      const raw = await fetchJson<RawPriceOverview>(`${PRICE_OVERVIEW_URL}?${query}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SkinScout/1.0)' },
+        retries: 1,
+      });
+      const price = {
+        lowest: parseUsd(raw.lowest_price),
+        median: parseUsd(raw.median_price),
+        volume: Number((raw.volume ?? '0').replace(/\D/g, '')) || 0,
+        url: `${LISTING_URL}/${encodeURIComponent(name)}`,
+      };
+
+      this.prices.set(name, { price, at: Date.now() });
+
+      return price;
+    });
+
+    this.queue = request.catch(() => undefined).then(() => wait(PRICE_GAP_MS));
+
+    return request;
+  }
+
   async searchListings(
     name: string,
     floatFrom?: number,
@@ -68,30 +117,12 @@ export class SteamMarketClient {
   }
 }
 
-const toSteamListing = (listing: RawSteamListing, url: string): SteamListing => {
-  const properties = listing.asset.asset_properties ?? [];
-  const float = properties.find((property) => property.propertyid === 2)?.float_value ?? null;
-  const paintSeedValue = properties.find((property) => property.propertyid === 1)?.int_value;
-  const inspect = properties.find((property) => property.propertyid === 6)?.string_value;
-  let phase: MarketPhase | null = null;
-
-  if (inspect) {
-    try {
-      phase = phaseFromPaintIndex(decodeHex(inspect).paintindex ?? 0);
-    } catch {
-      phase = null;
-    }
-  }
-
-  return {
-    id: listing.listingid,
-    priceLabel: listing.strSubtotal.replace('UAH', '₴').replace(/\s+/g, ' ').trim(),
-    float,
-    paintSeed: paintSeedValue ? Number(paintSeedValue) : null,
-    phase,
-    url,
-  };
-};
+const toSteamListing = (listing: RawSteamListing, url: string): SteamListing => ({
+  id: listing.listingid,
+  priceLabel: listing.strSubtotal.replace('UAH', '₴').replace(/\s+/g, ' ').trim(),
+  ...readAssetTraits(listing.asset.asset_properties),
+  url,
+});
 
 export const parseSteamPage = (html: string): RawSteamPage => {
   const contextMarker = 'window.SSR.renderContext=JSON.parse(';
