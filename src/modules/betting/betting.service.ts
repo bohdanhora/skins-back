@@ -71,12 +71,12 @@ export class BettingService {
   ) {}
 
   async overview(): Promise<BettingOverviewDto> {
-    const [model, matches, fixtures] = await Promise.all([
+    const [model, schedule, fixtures] = await Promise.all([
       this.loadModel(),
-      this.schedule.bigMatches(),
+      this.schedule.schedule(),
       this.odds.fixtures(),
     ]);
-    const featured = matches.filter((match) =>
+    const featured = schedule.matches.filter((match) =>
       [match.team1, match.team2].some(
         (team) => (model.vrs.get(teamKey(team.name))?.rank ?? Infinity) <= TOP_TEAMS,
       ),
@@ -87,6 +87,7 @@ export class BettingService {
 
     return {
       matches: forecasts.sort((left, right) => left.startsAt.localeCompare(right.startsAt)),
+      events: schedule.events,
       mapsKnown: model.results.length,
       mapPool: model.pool,
       standingsDate: model.standingsDate,

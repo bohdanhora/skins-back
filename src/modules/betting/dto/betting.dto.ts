@@ -140,9 +140,29 @@ export class SyncProgressDto {
   lastError!: string | null;
 }
 
+export class BigEventDto {
+  id!: number;
+  name!: string;
+
+  @ApiProperty({ type: String, nullable: true })
+  image!: string | null;
+
+  @ApiProperty({ type: String, nullable: true, description: 's or a' })
+  tier!: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  beginsAt!: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  endsAt!: string | null;
+}
+
 export class BettingOverviewDto {
   @ApiProperty({ type: [MatchForecastDto] })
   matches!: MatchForecastDto[];
+
+  @ApiProperty({ type: [BigEventDto], description: 'Running and upcoming big tournaments' })
+  events!: BigEventDto[];
 
   mapsKnown!: number;
   mapPool!: string[];
