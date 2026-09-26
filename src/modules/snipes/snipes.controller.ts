@@ -1,6 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { blueShare } from '../../domain/blue-gem';
 import { DMARKET_FLOAT_PARTS } from '../../domain/float';
 import { snipeProfit } from '../../domain/float-snipes';
 import { dmarketItemUrl, dmarketListingUrl } from '../../domain/market-links';
@@ -84,6 +85,7 @@ export class SnipesController {
           rarityColor: item.rarityColor,
           category: item.category,
           ...snipe,
+          blue: blueShare(name, snipe.paintSeed),
           orderFloatRange: floatRange(snipe.orderFloatPart),
           profit,
           percent: Math.round((profit / snipe.listingPrice) * 10_000) / 100,

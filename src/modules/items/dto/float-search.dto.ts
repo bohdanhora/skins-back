@@ -4,6 +4,7 @@ import { IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 
 
 import { MarketId } from '../../../domain/market-links';
 import { SourceStatus } from '../../listings/dto/listings.dto';
+import { BlueShareDto } from './blue-gem.dto';
 
 export class FloatSearchQueryDto {
   @IsString()
@@ -41,6 +42,9 @@ export class FloatListingDto {
   @ApiProperty({ nullable: true })
   paintSeed!: number | null;
 
+  @ApiProperty({ type: BlueShareDto, nullable: true })
+  blue!: BlueShareDto | null;
+
   url!: string;
 }
 
@@ -72,6 +76,9 @@ export class SteamListingDto {
   id!: string;
   priceLabel!: string;
 
+  @ApiProperty({ nullable: true, description: 'Converted to dollars, cents' })
+  price!: number | null;
+
   @ApiProperty({ nullable: true })
   float!: number | null;
 
@@ -80,6 +87,9 @@ export class SteamListingDto {
 
   @ApiProperty({ nullable: true })
   phase!: string | null;
+
+  @ApiProperty({ type: BlueShareDto, nullable: true })
+  blue!: BlueShareDto | null;
 
   url!: string;
 }

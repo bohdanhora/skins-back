@@ -15,6 +15,7 @@ import {
 
 import { ItemCategory } from '../../../domain/categories';
 import { MARKET_PHASES, type MarketPhase } from '../../../domain/market-variant';
+import { BlueShareDto } from '../../items/dto/blue-gem.dto';
 import { DEFAULT_FEE_PERCENT, MAX_PAGE_SIZE } from '../../items/dto/items-query.dto';
 
 export enum SnipeSort {
@@ -153,6 +154,9 @@ export class SnipeViewDto {
 
   @ApiProperty({ nullable: true })
   paintSeed!: number | null;
+
+  @ApiProperty({ type: BlueShareDto, nullable: true })
+  blue!: BlueShareDto | null;
 
   @ApiProperty({ nullable: true })
   phase!: string | null;

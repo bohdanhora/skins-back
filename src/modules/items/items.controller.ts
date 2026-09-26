@@ -12,7 +12,16 @@ import {
   type ItemFacetsDto,
   type ItemLibraryDto,
 } from './dto/item-library.dto';
+import {
+  BlueGemQueryDto,
+  BlueGemSearchDto,
+  BlueGemWeaponsDto,
+  CheapestPatternsDto,
+} from './dto/blue-gem.dto';
 import { FloatSearchDto, FloatSearchQueryDto } from './dto/float-search.dto';
+import { BlueGemService } from './blue-gem.service';
+import { PatternImagesDto } from './dto/pattern-images.dto';
+import { PatternImagesService } from './pattern-images.service';
 import { FloatSearchService } from './float-search.service';
 import { ItemsService } from './items.service';
 
@@ -29,6 +38,8 @@ export class ItemsController {
   constructor(
     private readonly items: ItemsService,
     private readonly floats: FloatSearchService,
+    private readonly blueGems: BlueGemService,
+    private readonly patterns: PatternImagesService,
     private readonly steamMarket: SteamMarketClient,
   ) {}
 
@@ -72,6 +83,36 @@ export class ItemsController {
   @ApiQuery({ name: 'name', required: true })
   steam(@Query() query: ItemNameQueryDto): Promise<SteamPrice> {
     return this.steamMarket.priceOverview(parseVariantName(query.name).marketHashName);
+  }
+
+  @Get('patterns')
+  @ApiOperation({ summary: 'pattern.wiki preview image for every seed of a skin' })
+  @ApiQuery({ name: 'name', required: true })
+  @ApiOkResponse({ type: PatternImagesDto })
+  patternImages(@Query() query: ItemNameQueryDto): Promise<PatternImagesDto> {
+    return this.patterns.images(query.name);
+  }
+
+  @Get('blue-gems/cheapest')
+  @ApiOperation({ summary: 'Pattern and blue share of the cheapest Case Hardened listings' })
+  @ApiQuery({ name: 'name', required: true })
+  @ApiOkResponse({ type: CheapestPatternsDto })
+  cheapestPatterns(@Query() query: ItemNameQueryDto): Promise<CheapestPatternsDto> {
+    return this.blueGems.cheapest(query.name);
+  }
+
+  @Get('blue-gems/weapons')
+  @ApiOperation({ summary: 'Case Hardened items with known blue shares' })
+  @ApiOkResponse({ type: BlueGemWeaponsDto })
+  blueGemWeapons(): BlueGemWeaponsDto {
+    return { weapons: this.blueGems.weapons() };
+  }
+
+  @Get('blue-gems')
+  @ApiOperation({ summary: 'Case Hardened listings on every market, bluest pattern first' })
+  @ApiOkResponse({ type: BlueGemSearchDto })
+  blueGemSearch(@Query() query: BlueGemQueryDto): Promise<BlueGemSearchDto> {
+    return this.blueGems.search(query);
   }
 
   @Get('floats')

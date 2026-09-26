@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 
 import { fetchJson, fetchText, wait } from '../../common/http/fetch-json';
 import { type MarketPhase } from '../../domain/market-variant';
+import { ExchangeRateClient, steamPriceToUsdCents } from './exchange-rate.client';
 import { readAssetTraits, type RawAssetProperty } from './steam-asset';
 
 const LISTING_URL = 'https://steamcommunity.com/market/listings/730';
@@ -44,6 +45,7 @@ const parseUsd = (value: string | undefined): number | null => {
 export interface SteamListing {
   id: string;
   priceLabel: string;
+  price: number | null;
   float: number | null;
   paintSeed: number | null;
   phase: MarketPhase | null;
@@ -54,6 +56,8 @@ export interface SteamListing {
 export class SteamMarketClient {
   private readonly prices = new Map<string, { price: SteamPrice; at: number }>();
   private queue: Promise<unknown> = Promise.resolve();
+
+  constructor(private readonly rates: ExchangeRateClient) {}
 
   priceOverview(name: string): Promise<SteamPrice> {
     const cached = this.prices.get(name);
@@ -97,17 +101,20 @@ export class SteamMarketClient {
       retries: 1,
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SkinScout/1.0)' },
     };
-    const pages = await Promise.all(
-      [0, 20, 40].map(async (start) =>
-        parseSteamPage(await fetchText(`${url}?start=${start}`, options)),
+    const [pages, uahPerUsd] = await Promise.all([
+      Promise.all(
+        [0, 20, 40].map(async (start) =>
+          parseSteamPage(await fetchText(`${url}?start=${start}`, options)),
+        ),
       ),
-    );
+      this.rates.uahPerUsd(),
+    ]);
 
     return pages
       .flatMap((page) => page.pages)
       .flatMap((entry) => entry.listings)
       .filter((listing) => listing.description.market_hash_name === name)
-      .map((listing) => toSteamListing(listing, url))
+      .map((listing) => toSteamListing(listing, url, uahPerUsd))
       .filter(
         (listing) =>
           (floatFrom === undefined || (listing.float !== null && listing.float >= floatFrom)) &&
@@ -117,9 +124,14 @@ export class SteamMarketClient {
   }
 }
 
-const toSteamListing = (listing: RawSteamListing, url: string): SteamListing => ({
+const toSteamListing = (
+  listing: RawSteamListing,
+  url: string,
+  uahPerUsd: number | null,
+): SteamListing => ({
   id: listing.listingid,
   priceLabel: listing.strSubtotal.replace('UAH', '₴').replace(/\s+/g, ' ').trim(),
+  price: steamPriceToUsdCents(listing.strSubtotal, uahPerUsd),
   ...readAssetTraits(listing.asset.asset_properties),
   url,
 });

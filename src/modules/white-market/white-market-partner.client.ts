@@ -18,8 +18,9 @@ const STICKER_SUGGESTIONS = 20;
 const AUTH_MUTATION = 'mutation { auth_token { accessToken } }';
 
 const LISTINGS_QUERY = `
-query Listings($search: MarketProductSearchInput, $first: Int) {
-  market_list(search: $search, forwardPagination: { first: $first }) {
+query Listings($search: MarketProductSearchInput, $first: Int, $after: String) {
+  market_list(search: $search, forwardPagination: { first: $first, after: $after }) {
+    pageInfo { hasNextPage endCursor }
     edges {
       node {
         id
@@ -28,6 +29,7 @@ query Listings($search: MarketProductSearchInput, $first: Int) {
         item {
           ... on CSGOInventoryItem {
             float
+            paintSeed
             nameHash
             stickers { name title icon }
             description { ... on CSGOSteamItem { icon } }
@@ -57,11 +59,23 @@ interface RawProduct {
   price: { value: string };
   item: {
     float?: string | null;
+    paintSeed?: string | null;
     nameHash?: string | null;
     stickers?: ({ name: string; title: string; icon: string | null } | null)[] | null;
     description?: { icon?: string | null } | null;
   } | null;
 }
+
+export type WhiteMarketListing = Listing & { paintSeed: number | null };
+
+interface RawListingsPage {
+  market_list: {
+    pageInfo?: { hasNextPage: boolean; endCursor: string | null };
+    edges: { node: RawProduct }[];
+  };
+}
+
+const PATTERN_PAGE_SIZE = 200;
 
 export interface WhiteMarketListingSearch {
   name?: string;
@@ -101,41 +115,57 @@ export class WhiteMarketPartnerClient {
     return this.config.isPartnerEnabled;
   }
 
-  async searchListings(search: WhiteMarketListingSearch): Promise<Listing[]> {
+  async searchListings(search: WhiteMarketListingSearch): Promise<WhiteMarketListing[]> {
     const stickerNames = search.stickers?.length
       ? await Promise.all(search.stickers.map((sticker) => this.resolveStickerName(sticker)))
       : undefined;
 
-    const data = await this.request<{ market_list: { edges: { node: RawProduct }[] } }>(
-      LISTINGS_QUERY,
-      {
-        first: search.limit,
-        search: {
-          appId: 'CSGO',
-          ...(search.name ? { nameHash: search.name, nameStrict: true } : {}),
-          ...(!search.name && search.nameContains ? { name: search.nameContains } : {}),
-          ...(stickerNames
-            ? { csgoStickerNames: stickerNames, csgoStickerNamesOperand: 'AND' }
-            : {}),
-          ...(search.priceFrom !== undefined || search.priceTo !== undefined
-            ? {
-                price: {
-                  ...(search.priceFrom !== undefined
-                    ? { from: centsToMoney(search.priceFrom) }
-                    : {}),
-                  ...(search.priceTo !== undefined ? { to: centsToMoney(search.priceTo) } : {}),
-                },
-              }
-            : {}),
-          ...(search.floatFrom !== undefined ? { csgoFloatFrom: String(search.floatFrom) } : {}),
-          ...(search.floatTo !== undefined ? { csgoFloatTo: String(search.floatTo) } : {}),
-          ...(search.phase ? { csgoPhase: WHITE_MARKET_PHASES[search.phase] } : {}),
-          sort: { field: 'PRICE', type: 'ASC' },
-        },
+    const data = await this.request<RawListingsPage>(LISTINGS_QUERY, {
+      first: search.limit,
+      search: {
+        appId: 'CSGO',
+        ...(search.name ? { nameHash: search.name, nameStrict: true } : {}),
+        ...(!search.name && search.nameContains ? { name: search.nameContains } : {}),
+        ...(stickerNames ? { csgoStickerNames: stickerNames, csgoStickerNamesOperand: 'AND' } : {}),
+        ...(search.priceFrom !== undefined || search.priceTo !== undefined
+          ? {
+              price: {
+                ...(search.priceFrom !== undefined ? { from: centsToMoney(search.priceFrom) } : {}),
+                ...(search.priceTo !== undefined ? { to: centsToMoney(search.priceTo) } : {}),
+              },
+            }
+          : {}),
+        ...(search.floatFrom !== undefined ? { csgoFloatFrom: String(search.floatFrom) } : {}),
+        ...(search.floatTo !== undefined ? { csgoFloatTo: String(search.floatTo) } : {}),
+        ...(search.phase ? { csgoPhase: WHITE_MARKET_PHASES[search.phase] } : {}),
+        sort: { field: 'PRICE', type: 'ASC' },
       },
-    );
+    });
 
     return data.market_list.edges.map(({ node }) => this.toListing(node));
+  }
+
+  async searchAllListings(nameContains: string, maxPages: number): Promise<WhiteMarketListing[]> {
+    const listings: WhiteMarketListing[] = [];
+    let after: string | null = null;
+
+    for (let page = 0; page < maxPages; page += 1) {
+      const data: RawListingsPage = await this.request<RawListingsPage>(LISTINGS_QUERY, {
+        first: PATTERN_PAGE_SIZE,
+        after,
+        search: { appId: 'CSGO', name: nameContains, sort: { field: 'PRICE', type: 'ASC' } },
+      });
+
+      listings.push(...data.market_list.edges.map(({ node }) => this.toListing(node)));
+
+      after = data.market_list.pageInfo?.hasNextPage
+        ? (data.market_list.pageInfo.endCursor ?? null)
+        : null;
+
+      if (!after) break;
+    }
+
+    return listings;
   }
 
   private async resolveStickerName(sticker: string): Promise<string> {
@@ -156,7 +186,7 @@ export class WhiteMarketPartnerClient {
     return match?.name ?? withoutStickerPrefix(sticker);
   }
 
-  private toListing(node: RawProduct): Listing {
+  private toListing(node: RawProduct): WhiteMarketListing {
     const name = node.item?.nameHash ?? '';
 
     return {
@@ -166,6 +196,7 @@ export class WhiteMarketPartnerClient {
       image: node.item?.description?.icon ?? null,
       price: dollarsToCents(node.price.value),
       float: node.item?.float ?? null,
+      paintSeed: toSeed(node.item?.paintSeed),
       stickers: (node.item?.stickers ?? [])
         .filter((sticker) => sticker !== null)
         .map((sticker) => ({
@@ -224,3 +255,11 @@ export class WhiteMarketPartnerClient {
     return response.data;
   }
 }
+
+const toSeed = (value: string | null | undefined): number | null => {
+  const seed = Number(value);
+
+  return value !== null && value !== undefined && value !== '' && Number.isInteger(seed)
+    ? seed
+    : null;
+};

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+import { blueShare } from '../../domain/blue-gem';
 import { DMARKET_FLOAT_PARTS, inRange, overlaps } from '../../domain/float';
 import { liveOrders } from '../../domain/float-snipes';
 import { MarketId, dmarketListingUrl } from '../../domain/market-links';
@@ -67,6 +68,7 @@ export class FloatSearchService {
               price: exported.price,
               float: exported.cheapestFloat,
               paintSeed: null,
+              blue: null,
               url: exported.url,
             }
           : null),
@@ -91,7 +93,8 @@ export class FloatSearchService {
             market: MarketId.WhiteMarket,
             price: cheapest.price,
             float: cheapest.float === null ? null : Number(cheapest.float),
-            paintSeed: null,
+            paintSeed: cheapest.paintSeed,
+            blue: blueShare(name, cheapest.paintSeed),
             url: cheapest.url,
           }
         : null;
@@ -126,6 +129,7 @@ export class FloatSearchService {
             price: offer.price,
             float: offer.float,
             paintSeed: offer.paintSeed,
+            blue: blueShare(name, offer.paintSeed),
             url: dmarketListingUrl(name, offer.float),
           })),
         },
@@ -170,7 +174,8 @@ export class FloatSearchService {
         market: MarketId.WhiteMarket,
         price: listing.price,
         float: listing.float === null ? null : Number(listing.float),
-        paintSeed: null,
+        paintSeed: listing.paintSeed,
+        blue: blueShare(name, listing.paintSeed),
         url: listing.url,
       }));
 
@@ -208,6 +213,7 @@ export class FloatSearchService {
           price: listing.price,
           float: listing.float,
           paintSeed: listing.paintSeed,
+          blue: blueShare(name, listing.paintSeed),
           url: listing.url,
         })),
       };
@@ -227,7 +233,14 @@ export class FloatSearchService {
     try {
       const listings = await this.steam.searchListings(name, from, to, phase);
 
-      return { status: SourceStatus.Ok, listings, total: listings.length };
+      return {
+        status: SourceStatus.Ok,
+        listings: listings.map((listing) => ({
+          ...listing,
+          blue: blueShare(name, listing.paintSeed),
+        })),
+        total: listings.length,
+      };
     } catch (error) {
       this.logger.warn(`Steam listings for "${name}" failed: ${String(error)}`);
 

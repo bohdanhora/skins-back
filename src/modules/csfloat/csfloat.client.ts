@@ -51,6 +51,21 @@ export interface CsfloatListing {
   url: string;
 }
 
+export interface CsfloatPatternListing {
+  id: string;
+  name: string;
+  price: number;
+  float: number;
+  paintSeed: number;
+  url: string;
+}
+
+export interface CsfloatPatternSearch {
+  defIndex: number;
+  paintIndex: number;
+  paintSeed: number;
+}
+
 export interface CsfloatListingSearch {
   name: string;
   floatFrom?: number;
@@ -206,6 +221,32 @@ export class CsfloatClient {
         url: `https://csfloat.com/item/${encodeURIComponent(row.id)}`,
       }))
       .filter((row) => !search.phase || row.phase === search.phase);
+  }
+
+  async searchPatternListings(search: CsfloatPatternSearch): Promise<CsfloatPatternListing[]> {
+    const query = new URLSearchParams({
+      def_index: String(search.defIndex),
+      paint_index: String(search.paintIndex),
+      paint_seed: String(search.paintSeed),
+      limit: String(MAX_LISTINGS),
+      sort_by: 'lowest_price',
+      type: 'buy_now',
+    });
+    const response = await fetchJson<RawCsfloatListing[] | RawCsfloatResponse>(
+      `${LISTINGS_URL}?${query}`,
+      { headers: { Authorization: this.config.apiKey }, retries: 0 },
+    );
+
+    return unwrapCsfloatListings(response)
+      .filter((row) => row.item.paint_seed === search.paintSeed)
+      .map((row) => ({
+        id: row.id,
+        name: row.item.market_hash_name,
+        price: row.price,
+        float: row.item.float_value,
+        paintSeed: row.item.paint_seed,
+        url: `https://csfloat.com/item/${encodeURIComponent(row.id)}`,
+      }));
   }
 
   async fetchDailySales(name: string): Promise<DailySales[]> {

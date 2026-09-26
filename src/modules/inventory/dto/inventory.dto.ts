@@ -13,6 +13,7 @@ import {
 
 import { MARKET_PHASES, type MarketPhase } from '../../../domain/market-variant';
 import { SELL_MARKETS, type SellMarketId } from '../../../domain/market-links';
+import { BlueShareDto } from '../../items/dto/blue-gem.dto';
 import { DEFAULT_FEE_PERCENT } from '../../items/dto/items-query.dto';
 import { MarketQuoteDto, SalesStatsDto } from '../../items/dto/item-view.dto';
 
@@ -119,6 +120,9 @@ export class InventoryItemDto {
 
   @ApiProperty({ nullable: true })
   paintSeed!: number | null;
+
+  @ApiProperty({ type: BlueShareDto, nullable: true })
+  blue!: BlueShareDto | null;
 
   @ApiProperty({ enum: MARKET_PHASES, nullable: true })
   phase!: MarketPhase | null;

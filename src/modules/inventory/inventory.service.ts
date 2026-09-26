@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { blueShare } from '../../domain/blue-gem';
 import { sumValues, valueItem } from '../../domain/inventory-value';
 import { variantName } from '../../domain/market-variant';
 import { feesFrom } from '../items/item-query';
@@ -86,6 +87,7 @@ export class InventoryService {
         rarityColor: indexed?.rarityColor ?? first.nameColor,
         float: first.float,
         paintSeed: first.paintSeed,
+        blue: blueShare(first.marketHashName, first.paintSeed),
         phase: first.phase,
         amount: group.reduce((sum, entry) => sum + entry.amount, 0),
         tradable: first.tradable,
