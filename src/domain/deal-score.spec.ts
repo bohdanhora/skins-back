@@ -25,3 +25,37 @@ describe('deal score', () => {
     expect(strong!.score).toBeGreaterThan(weak!.score);
   });
 });
+
+describe('deal score money weight', () => {
+  const sales = {
+    floor: 0,
+    lastDay: '2026-09-25',
+    lastAverage: 0,
+    weekSales: 20,
+    eightWeekSales: 150,
+    trendPercent: 0,
+  };
+
+  it('ranks a big discount in dollars above the same percent on a cheap item', () => {
+    const cheap = calculateDealScore(
+      { price: 70, reference: 95, discount: 25, percent: 26, bidCover: 100 },
+      sales,
+      200,
+    );
+    const pricey = calculateDealScore(
+      { price: 7_400, reference: 10_000, discount: 2_600, percent: 26, bidCover: 100 },
+      sales,
+      200,
+    );
+
+    expect(pricey!.score).toBeGreaterThan(cheap!.score);
+  });
+
+  it('does not reward a buy order above the price', () => {
+    const top = { price: 100, reference: 130, discount: 30, percent: 23 };
+
+    expect(calculateDealScore({ ...top, bidCover: 260 }, sales, 10)).toEqual(
+      calculateDealScore({ ...top, bidCover: 100 }, sales, 10),
+    );
+  });
+});

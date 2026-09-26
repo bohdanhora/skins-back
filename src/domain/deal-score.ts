@@ -7,6 +7,12 @@ export interface DealScore {
   confidence: DealConfidence;
 }
 
+const RELIABLE_TREND_WEEK_SALES = 5;
+const RELIABLE_TREND_SALES = 20;
+
+const clamp = (value: number, min: number, max: number): number =>
+  Math.max(min, Math.min(max, value));
+
 export const calculateDealScore = (
   top: TopOffer | null,
   sales: SalesStats | null,
@@ -15,16 +21,21 @@ export const calculateDealScore = (
   if (!top || !sales) return null;
 
   const eightWeekSales = sales.eightWeekSales ?? sales.weekSales;
-  const bidCover = top.bidCover ?? 0;
-  const discountPoints = Math.min(35, top.percent * 1.5);
-  const bidPoints = Math.max(0, Math.min(25, ((bidCover - 70) / 30) * 25));
-  const liquidityPoints = Math.min(25, Math.log10(eightWeekSales + 1) * 10);
-  const depthPoints = Math.min(10, Math.log10(depth + 1) * 4);
-  const trendPoints = Math.max(-10, Math.min(5, (sales.trendPercent ?? 0) / 2));
+  const bidCover = Math.min(100, top.bidCover ?? 0);
+  const percentPoints = clamp(top.percent * 1.2, 0, 30);
+  const moneyPoints = clamp(Math.log10(top.discount / 10 + 1) * 7.5, 0, 20);
+  const bidPoints = clamp(((bidCover - 80) / 20) * 20, 0, 20);
+  const liquidityPoints = clamp(Math.log10(eightWeekSales + 1) * 8, 0, 20);
+  const depthPoints = clamp(Math.log10(depth + 1) * 2.5, 0, 5);
+  const trendPoints =
+    sales.weekSales >= RELIABLE_TREND_WEEK_SALES && eightWeekSales >= RELIABLE_TREND_SALES
+      ? clamp((sales.trendPercent ?? 0) / 3, -10, 5)
+      : 0;
   const score = Math.round(
-    Math.max(
+    clamp(
+      percentPoints + moneyPoints + bidPoints + liquidityPoints + depthPoints + trendPoints,
       0,
-      Math.min(100, discountPoints + bidPoints + liquidityPoints + depthPoints + trendPoints),
+      100,
     ),
   );
   const confidence: DealConfidence =
