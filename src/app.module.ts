@@ -8,6 +8,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import {
   appConfig,
   authConfig,
+  bettingConfig,
   csfloatConfig,
   databaseConfig,
   dmarketConfig,
@@ -17,6 +18,7 @@ import {
 } from './config/app.config';
 import { validateEnvironment } from './config/environment';
 import { AuthModule } from './modules/auth/auth.module';
+import { BettingModule } from './modules/betting/betting.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { FavoritesModule } from './modules/favorites/favorites.module';
 import { HealthModule } from './modules/health/health.module';
@@ -41,6 +43,7 @@ const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
         appConfig,
         databaseConfig,
         authConfig,
+        bettingConfig,
         syncConfig,
         whiteMarketConfig,
         dmarketConfig,
@@ -82,6 +85,7 @@ const GLOBAL_RATE_LIMIT = { ttl: 60_000, limit: 600 };
     PurchasesModule,
     FavoritesModule,
     SettingsModule,
+    BettingModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

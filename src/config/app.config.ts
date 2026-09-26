@@ -25,6 +25,12 @@ export interface AuthConfig {
   sessionDays: number;
 }
 
+export interface BettingConfig {
+  oddsPapiKey: string;
+  pandaScoreToken: string;
+  isEnabled: boolean;
+}
+
 export interface SyncConfig {
   pricesRefreshMs: number;
   listingsRefreshMs: number;
@@ -78,6 +84,13 @@ export const authConfig = registerAs<AuthConfig>('auth', () => ({
   frontendUrl: (process.env.FRONTEND_URL ?? 'http://localhost:3100').replace(/\/+$/, ''),
   sessionDays: Number(process.env.SESSION_DAYS ?? 30),
 }));
+
+export const bettingConfig = registerAs<BettingConfig>('betting', () => {
+  const oddsPapiKey = readSecret('ODDSPAPI_API_KEY');
+  const pandaScoreToken = readSecret('PANDASCORE_API_TOKEN');
+
+  return { oddsPapiKey, pandaScoreToken, isEnabled: pandaScoreToken.length > 0 };
+});
 
 export const syncConfig = registerAs<SyncConfig>('sync', () => ({
   pricesRefreshMs: Number(process.env.PRICES_REFRESH_MINUTES ?? 5) * MINUTE_MS,

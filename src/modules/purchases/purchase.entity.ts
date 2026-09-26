@@ -55,6 +55,9 @@ export class PurchaseEntity {
   @Column({ type: 'text', default: '' })
   note!: string;
 
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  stickers!: string[];
+
   @Column({ name: 'asset_id', type: 'varchar', length: 32, nullable: true })
   assetId!: string | null;
 

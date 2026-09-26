@@ -29,6 +29,7 @@ export type PurchaseMarket = (typeof PURCHASE_MARKETS)[number];
 
 const MAX_CENTS = 1_000_000_000;
 const MAX_IMPORT = 2000;
+const MAX_STICKERS = 6;
 
 export class PurchaseSaleDto {
   @ApiProperty({ enum: PURCHASE_MARKETS })
@@ -107,6 +108,14 @@ export class PurchaseInputDto {
   @IsString()
   @MaxLength(1000)
   note = '';
+
+  @ApiPropertyOptional({ type: [String], description: 'Sticker item names on the skin' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_STICKERS)
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  stickers: string[] = [];
 
   @ApiPropertyOptional({ type: String, nullable: true })
   @IsOptional()

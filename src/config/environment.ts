@@ -122,6 +122,14 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   CSFLOAT_API_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  ODDSPAPI_API_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  PANDASCORE_API_TOKEN?: string;
 }
 
 export const validateEnvironment = (raw: Record<string, unknown>): EnvironmentVariables => {

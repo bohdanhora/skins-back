@@ -18,6 +18,7 @@ const toDto = (entity: PurchaseEntity): PurchaseDto => ({
   float: entity.float,
   paintSeed: entity.paintSeed,
   note: entity.note,
+  stickers: entity.stickers ?? [],
   assetId: entity.assetId,
   sale:
     entity.soldMarket !== null && entity.soldReceived !== null && entity.soldAt !== null
@@ -41,6 +42,7 @@ const toColumns = (input: PurchaseInputDto): Partial<PurchaseEntity> => ({
   float: input.float ?? null,
   paintSeed: input.paintSeed ?? null,
   note: input.note.trim(),
+  stickers: (input.stickers ?? []).map((name) => name.trim()).filter(Boolean),
   assetId: input.assetId ?? null,
   soldMarket: input.sale?.market ?? null,
   soldReceived: input.sale?.received ?? null,
