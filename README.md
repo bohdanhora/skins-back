@@ -8,11 +8,22 @@ API для поиска выгодных скинов CS2 на [white.market](ht
 
 ```bash
 cp .env.example .env
+docker compose up -d
 npm install
 npm run dev
 ```
 
 API: `http://localhost:4100/api`, документация Swagger: `http://localhost:4100/api/docs`.
+
+## Аккаунты и база
+
+Аккаунты и покупки хранятся в Postgres (`DATABASE_URL`). Миграции применяются сами при старте.
+Локально база поднимается через `docker compose up -d` на порту 5433.
+
+Вход только через Steam (OpenID). Steam возвращает пользователя на `PUBLIC_API_URL/api/auth/steam/return`,
+а API отправляет его на `FRONTEND_URL/auth` с токеном сессии. На Railway нужно добавить Postgres и
+задать `DATABASE_URL`, `PUBLIC_API_URL` (публичный адрес API без `/api`) и `FRONTEND_URL`.
+Если база подключается по внешнему адресу с SSL, поставь `DATABASE_SSL=true`.
 
 Первый сбор цен занимает около минуты. Потом цены держатся в памяти, обновляются каждые
 `PRICES_REFRESH_MINUTES` минут и сохраняются в `.cache/`, так что после перезапуска всё видно сразу.

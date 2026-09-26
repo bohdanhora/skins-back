@@ -14,6 +14,17 @@ export interface AppConfig {
   cacheDir: string;
 }
 
+export interface DatabaseConfig {
+  url: string;
+  ssl: boolean;
+}
+
+export interface AuthConfig {
+  publicApiUrl: string;
+  frontendUrl: string;
+  sessionDays: number;
+}
+
 export interface SyncConfig {
   pricesRefreshMs: number;
   listingsRefreshMs: number;
@@ -56,6 +67,17 @@ export const appConfig = registerAs<AppConfig>('app', () => {
     cacheDir: process.env.CACHE_DIR ?? '.cache',
   };
 });
+
+export const databaseConfig = registerAs<DatabaseConfig>('database', () => ({
+  url: readSecret('DATABASE_URL'),
+  ssl: process.env.DATABASE_SSL === 'true',
+}));
+
+export const authConfig = registerAs<AuthConfig>('auth', () => ({
+  publicApiUrl: (process.env.PUBLIC_API_URL ?? 'http://localhost:4100').replace(/\/+$/, ''),
+  frontendUrl: (process.env.FRONTEND_URL ?? 'http://localhost:3100').replace(/\/+$/, ''),
+  sessionDays: Number(process.env.SESSION_DAYS ?? 30),
+}));
 
 export const syncConfig = registerAs<SyncConfig>('sync', () => ({
   pricesRefreshMs: Number(process.env.PRICES_REFRESH_MINUTES ?? 5) * MINUTE_MS,

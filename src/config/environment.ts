@@ -1,5 +1,16 @@
 import { Type, plainToInstance } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
+import {
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Max,
+  Min,
+  validateSync,
+} from 'class-validator';
 
 export enum NodeEnvironment {
   Development = 'development',
@@ -72,6 +83,29 @@ export class EnvironmentVariables {
   @IsString()
   @IsOptional()
   CACHE_DIR = '.cache';
+
+  @IsString()
+  @IsNotEmpty()
+  DATABASE_URL!: string;
+
+  @IsIn(['true', 'false'])
+  @IsOptional()
+  DATABASE_SSL = 'false';
+
+  @IsUrl({ require_tld: false })
+  @IsOptional()
+  PUBLIC_API_URL = 'http://localhost:4100';
+
+  @IsUrl({ require_tld: false })
+  @IsOptional()
+  FRONTEND_URL = 'http://localhost:3100';
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  @IsOptional()
+  SESSION_DAYS = 30;
 
   @IsString()
   @IsOptional()
