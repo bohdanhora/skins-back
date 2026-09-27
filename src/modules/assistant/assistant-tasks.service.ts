@@ -416,6 +416,7 @@ export class AssistantTasksService {
                   market: listing.market,
                   price: listing.price,
                   float: listing.float,
+                  paintSeed: listing.paintSeed,
                   url: listing.url,
                 },
               ]
@@ -424,7 +425,15 @@ export class AssistantTasksService {
       ),
       ...search.steam.listings.flatMap((listing) =>
         listing.float !== null && listing.price !== null
-          ? [{ market: 'steam', price: listing.price, float: listing.float, url: listing.url }]
+          ? [
+              {
+                market: 'steam',
+                price: listing.price,
+                float: listing.float,
+                paintSeed: listing.paintSeed,
+                url: listing.url,
+              },
+            ]
           : [],
       ),
     ];
@@ -439,6 +448,7 @@ export class AssistantTasksService {
       market: deal.market,
       price: deal.price,
       float: deal.float,
+      paintSeed: deal.paintSeed,
       url: deal.url,
       worseCheapest: deal.worseCheapest,
       saving: deal.saving,

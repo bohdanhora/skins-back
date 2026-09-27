@@ -258,7 +258,7 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
             source: 'whiteMarket',
             price: listing.price,
             float: Number(listing.float),
-            paintSeed: null,
+            paintSeed: listing.paintSeed,
             phase: null,
             listingUrl: listing.url,
           }));

@@ -4,6 +4,7 @@ const lot = (float: number, price: number): FloatLot => ({
   market: 'dmarket',
   price,
   float,
+  paintSeed: null,
   url: `https://x/${float}`,
 });
 

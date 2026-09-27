@@ -2,6 +2,7 @@ export interface FloatLot {
   market: string;
   price: number;
   float: number;
+  paintSeed: number | null;
   url: string;
 }
 

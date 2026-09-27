@@ -286,6 +286,10 @@ export class FloatPickDto {
   price!: number;
 
   float!: number;
+
+  @ApiProperty({ type: Number, nullable: true })
+  paintSeed!: number | null;
+
   url!: string;
 
   @ApiProperty({
