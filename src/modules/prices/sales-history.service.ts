@@ -68,10 +68,9 @@ export class SalesHistoryService implements OnApplicationBootstrap, OnModuleDest
 
   progress(): SalesScanProgress {
     const candidates = this.candidates();
-    const fresh = Date.now() - this.sync.salesRefreshMs;
 
     return {
-      checked: candidates.filter((name) => (this.stats.get(name)?.fetchedAt ?? 0) > fresh).length,
+      checked: candidates.filter((name) => this.stats.has(name)).length,
       total: candidates.length,
     };
   }

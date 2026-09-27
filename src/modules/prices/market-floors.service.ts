@@ -120,14 +120,12 @@ export class MarketFloorsService implements OnApplicationBootstrap, OnModuleDest
     return Object.fromEntries(
       this.sources.map((source) => {
         const names = this.candidates(source.market);
-        const fresh = Date.now() - source.refreshMs;
 
         return [
           source.market,
           {
-            checked: names.filter(
-              (name) => (this.floors.get(name)?.[source.market]?.fetchedAt ?? 0) > fresh,
-            ).length,
+            checked: names.filter((name) => this.floors.get(name)?.[source.market] !== undefined)
+              .length,
             total: names.length,
           },
         ];
