@@ -12,6 +12,7 @@ import { PatternImagesService } from './pattern-images.service';
 import { FloatSearchService } from './float-search.service';
 import { ItemIndexService } from './item-index.service';
 import { ItemsController } from './items.controller';
+import { InspectGenService } from './inspect-gen.service';
 import { ItemsService } from './items.service';
 
 @Module({
@@ -25,6 +26,7 @@ import { ItemsService } from './items.service';
     BlueGemService,
     BlueValueService,
     PatternImagesService,
+    InspectGenService,
   ],
   exports: [
     ItemIndexService,

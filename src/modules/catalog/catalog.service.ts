@@ -14,9 +14,9 @@ const METADATA_URL =
 const SKINS_URL =
   'https://raw.githubusercontent.com/ByMykel/CSGO-API/main/public/api/en/skins.json';
 const METADATA_TIMEOUT_MS = 180_000;
-const CACHE_KEY = 'catalog-v2';
+const CACHE_KEY = 'catalog-v3';
 const PHASE_IMAGES_KEY = 'catalog-phase-images-v2';
-const SKINS_KEY = 'catalog-skins-v4';
+const SKINS_KEY = 'catalog-skins-v5';
 const RETRY_AFTER_FAILURE_MS = 10 * 60_000;
 
 export interface ItemMetadata {
@@ -24,6 +24,7 @@ export interface ItemMetadata {
   rarityColor: string | null;
   rarity: string | null;
   type: string;
+  defIndex: number | null;
   collections: { name: string; image: string | null }[];
 }
 
@@ -32,6 +33,7 @@ export interface SkinDefinition {
   weapon: string;
   weaponId: string;
   weaponIndex: number | null;
+  paintIndex: number | null;
   patternId: string;
   phasePatternIds: Partial<Record<MarketPhase, string>>;
   rarity: string;
@@ -51,6 +53,7 @@ interface RawMetadataEntry {
   image?: string | null;
   rarity?: { name?: string; color?: string } | null;
   skin_id?: string;
+  def_index?: string | number | null;
 }
 
 interface RawSkinEntry {
@@ -71,6 +74,12 @@ interface RawSkinEntry {
 }
 
 const WEAR_SUFFIX = / \((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/;
+
+const toIndex = (value: string | number | null | undefined): number | null => {
+  const index = Number(value);
+
+  return value !== null && value !== undefined && Number.isInteger(index) ? index : null;
+};
 
 const phaseImageKey = (base: string, paintIndex: number): string => `${base}#${paintIndex}`;
 
@@ -216,6 +225,7 @@ export class CatalogService implements OnModuleDestroy {
         rarityColor: entry.rarity?.color ?? null,
         rarity: entry.rarity?.name ?? null,
         type: (entry.id ?? '').split('-')[0],
+        defIndex: toIndex(entry.def_index),
         collections: collectionsBySkin.get(entry.skin_id) ?? [],
       });
     }
@@ -279,6 +289,7 @@ export const toSkinDefinitions = (skins: RawSkinEntry[]): SkinDefinition[] => {
       weapon: skin.weapon.name,
       weaponId: skin.weapon.id,
       weaponIndex: Number.isInteger(skin.weapon.weapon_id) ? skin.weapon.weapon_id! : null,
+      paintIndex: toIndex(skin.paint_index),
       patternId: skin.pattern?.id ?? '',
       phasePatternIds: phase && skin.pattern?.id ? { [phase]: skin.pattern.id } : {},
       rarity: skin.rarity.name,

@@ -26,6 +26,8 @@ import { PatternImagesDto } from './dto/pattern-images.dto';
 import { PatternImagesService } from './pattern-images.service';
 import { FloatSearchService } from './float-search.service';
 import { ItemsService } from './items.service';
+import { InspectGenDto, InspectGenQueryDto } from './dto/inspect-gen.dto';
+import { InspectGenService } from './inspect-gen.service';
 
 class ItemNameQueryDto extends ItemsQueryDto {
   @IsString()
@@ -44,6 +46,7 @@ export class ItemsController {
     private readonly blueValues: BlueValueService,
     private readonly patterns: PatternImagesService,
     private readonly steamMarket: SteamMarketClient,
+    private readonly inspectGen: InspectGenService,
   ) {}
 
   @Get()
@@ -125,6 +128,13 @@ export class ItemsController {
   @ApiOkResponse({ type: BlueGemSearchDto })
   blueGemSearch(@Query() query: BlueGemQueryDto): Promise<BlueGemSearchDto> {
     return this.blueGems.search(query);
+  }
+
+  @Get('gen')
+  @ApiOperation({ summary: 'Inspect link and chat commands to preview a skin in game' })
+  @ApiOkResponse({ type: InspectGenDto })
+  gen(@Query() query: InspectGenQueryDto): InspectGenDto {
+    return this.inspectGen.generate(query);
   }
 
   @Get('floats')
