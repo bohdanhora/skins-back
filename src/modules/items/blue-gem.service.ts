@@ -51,10 +51,17 @@ interface SourceResult {
 const hasWear = (name: string, wear: BlueGemWear | undefined): boolean =>
   !wear || name.endsWith(`(${WEAR_NAMES[wear]})`);
 
-const byBlue = (left: BlueGemListingDto, right: BlueGemListingDto): number =>
-  right.blue.playside - left.blue.playside ||
-  right.blue.backside - left.blue.backside ||
-  (left.price ?? Infinity) - (right.price ?? Infinity);
+export const byBlue = (left: BlueGemListingDto, right: BlueGemListingDto): number => {
+  const leftBlue = left.csfloatBlue ?? left.blue;
+  const rightBlue = right.csfloatBlue ?? right.blue;
+
+  return (
+    Number(right.csfloatBlue !== null) - Number(left.csfloatBlue !== null) ||
+    rightBlue.playside - leftBlue.playside ||
+    rightBlue.backside - leftBlue.backside ||
+    (left.price ?? Infinity) - (right.price ?? Infinity)
+  );
+};
 
 const withBlue = (rows: RawListing[]): BlueGemListingDto[] =>
   rows.flatMap((row) => {
