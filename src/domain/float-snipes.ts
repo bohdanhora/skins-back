@@ -1,4 +1,4 @@
-import { DMARKET_FLOAT_PARTS, inRange } from './float';
+import { inRange, type FloatRange } from './float';
 
 export interface DepthOffer {
   price: number;
@@ -7,9 +7,13 @@ export interface DepthOffer {
   phase: string | null;
 }
 
+export type OrderMarket = 'dmarket' | 'csfloat';
+
 export interface DepthOrder {
+  market: OrderMarket;
   price: number;
   amount: number;
+  floatRanges: FloatRange[];
   floatPart: string | null;
   paintSeed: number | null;
   phase: string | null;
@@ -23,8 +27,10 @@ export interface FloatSnipe {
   float: number | null;
   paintSeed: number | null;
   phase: string | null;
+  orderMarket: OrderMarket;
   orderPrice: number;
   orderAmount: number;
+  orderFloatRanges: FloatRange[];
   orderFloatPart: string | null;
   orderPaintSeed: number | null;
   orderPhase: string | null;
@@ -34,10 +40,10 @@ export interface FloatSnipe {
 const MAX_SNIPES_PER_ITEM = 5;
 
 export const orderAccepts = (order: DepthOrder, offer: DepthOffer): boolean => {
-  if (order.floatPart) {
-    const range = DMARKET_FLOAT_PARTS[order.floatPart];
+  if (order.floatRanges.length > 0) {
+    const { float } = offer;
 
-    if (!range || offer.float === null || !inRange(offer.float, range[0], range[1])) {
+    if (float === null || !order.floatRanges.some(([from, to]) => inRange(float, from, to))) {
       return false;
     }
   }
@@ -52,7 +58,7 @@ export const orderAccepts = (order: DepthOrder, offer: DepthOffer): boolean => {
 export const liveOrders = (offers: DepthOffer[], orders: DepthOrder[]): DepthOrder[] =>
   orders.filter(
     (order) =>
-      order.floatPart !== null ||
+      order.floatRanges.length > 0 ||
       order.paintSeed !== null ||
       !offers.some((offer) => offer.price < order.price && orderAccepts(order, offer)),
   );
@@ -86,8 +92,10 @@ export const findSnipes = (candidates: SnipeCandidate[], orders: DepthOrder[]): 
       float: offer.float,
       paintSeed: offer.paintSeed,
       phase: offer.phase,
+      orderMarket: order.market,
       orderPrice: order.price,
       orderAmount: order.amount,
+      orderFloatRanges: order.floatRanges,
       orderFloatPart: order.floatPart,
       orderPaintSeed: order.paintSeed,
       orderPhase: order.phase,
@@ -103,5 +111,5 @@ export const findSnipes = (candidates: SnipeCandidate[], orders: DepthOrder[]): 
     .slice(0, MAX_SNIPES_PER_ITEM);
 };
 
-export const snipeProfit = (snipe: FloatSnipe, dmarketFee: number): number =>
-  Math.floor(snipe.orderPrice * (1 - dmarketFee)) - snipe.listingPrice;
+export const snipeProfit = (snipe: FloatSnipe, fees: Record<OrderMarket, number>): number =>
+  Math.floor(snipe.orderPrice * (1 - fees[snipe.orderMarket])) - snipe.listingPrice;

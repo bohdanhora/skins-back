@@ -28,6 +28,7 @@ import { FloatSearchService } from './float-search.service';
 import { ItemsService } from './items.service';
 import { InspectGenDto, InspectGenQueryDto } from './dto/inspect-gen.dto';
 import { InspectGenService } from './inspect-gen.service';
+import { BuyOrdersDto } from './dto/buy-orders.dto';
 
 class ItemNameQueryDto extends ItemsQueryDto {
   @IsString()
@@ -142,6 +143,14 @@ export class ItemsController {
   @ApiOkResponse({ type: FloatSearchDto })
   floatSearch(@Query() query: FloatSearchQueryDto): Promise<FloatSearchDto> {
     return this.floats.search(query);
+  }
+
+  @Get('buy-orders')
+  @ApiOperation({ summary: 'Best CSFloat buy order the cheapest lot of an item would fill' })
+  @ApiQuery({ name: 'name', required: true })
+  @ApiOkResponse({ type: BuyOrdersDto })
+  buyOrders(@Query() query: ItemNameQueryDto): Promise<BuyOrdersDto> {
+    return this.items.buyOrders(query.name);
   }
 
   @Get('listings')

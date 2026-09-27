@@ -7,6 +7,9 @@ import { MarketFloorsService } from '../prices/market-floors.service';
 import { SalesHistoryService } from '../prices/sales-history.service';
 import { type ItemViewDto, type ItemsPageDto, type SalesChartDto } from './dto/item-view.dto';
 import { summarizeSales, type DailySales } from '../../domain/sales';
+import { cheapestPrice } from '../../domain/comparison';
+import { orderAccepts } from '../../domain/float-snipes';
+import { type BuyOrdersDto } from './dto/buy-orders.dto';
 import { CsfloatClient } from '../csfloat/csfloat.client';
 import { WhiteMarketStatsClient } from '../white-market/white-market-stats.client';
 import { type ItemsQueryDto } from './dto/items-query.dto';
@@ -22,6 +25,7 @@ import {
 const ITEM_LISTINGS = 10;
 const MARKET_SALES_TTL_MS = 30 * 60_000;
 const MARKET_SALES_CACHE_SIZE = 300;
+const BUY_ORDERS_TTL_MS = 5 * 60_000;
 
 @Injectable()
 export class ItemsService {
@@ -36,6 +40,7 @@ export class ItemsService {
   ) {}
 
   private readonly marketSales = new Map<string, { days: DailySales[]; at: number }>();
+  private readonly buyOrderCache = new Map<string, { value: BuyOrdersDto; at: number }>();
 
   list(query: ItemsQueryDto): ItemsPageDto {
     const page = queryItems(
@@ -113,6 +118,44 @@ export class ItemsService {
       return days;
     } catch {
       return cached?.days ?? null;
+    }
+  }
+
+  async buyOrders(name: string): Promise<BuyOrdersDto> {
+    const cached = this.buyOrderCache.get(name);
+
+    if (cached && Date.now() - cached.at < BUY_ORDERS_TTL_MS) return cached.value;
+
+    const item = this.board.find(name);
+    const white = this.board.whiteMarketPrice(name);
+    const float = item && white && white.price === cheapestPrice(item) ? white.cheapestFloat : null;
+
+    if (!this.csfloat.isEnabled) return { csfloat: null, float, unavailable: true };
+
+    try {
+      const orders = await this.csfloat.fetchBuyOrders(name, float);
+      const lot = { price: 0, float, paintSeed: null, phase: null };
+      const best = orders
+        .filter((order) => order.paintSeed === null && orderAccepts(order, lot))
+        .sort((left, right) => right.price - left.price)[0];
+      const range = best?.floatRanges[0];
+      const value: BuyOrdersDto = {
+        csfloat: best
+          ? {
+              price: best.price,
+              amount: best.amount,
+              floatRange: range ? [range[0], range[1]] : null,
+            }
+          : null,
+        float,
+        unavailable: false,
+      };
+
+      this.buyOrderCache.set(name, { value, at: Date.now() });
+
+      return value;
+    } catch {
+      return { csfloat: null, float, unavailable: true };
     }
   }
 

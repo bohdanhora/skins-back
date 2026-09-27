@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { fetchJson } from '../../common/http/fetch-json';
+import { DMARKET_FLOAT_PARTS, mergeRanges } from '../../domain/float';
 import { type DepthOffer, type DepthOrder } from '../../domain/float-snipes';
 import { normalizeMarketPhase } from '../../domain/market-variant';
 import { DmarketRateLimiter, type RequestPriority } from './dmarket-rate-limiter';
@@ -64,16 +65,33 @@ export class DmarketDepthClient {
       }));
     });
 
-    const orders = (raw.orders ?? []).map((level) => {
+    const orders = (raw.orders ?? []).flatMap((level): DepthOrder[] => {
       const attribute: RawAttributes = level.attributes[0] ?? {};
+      const parts = [
+        ...new Set(level.attributes.flatMap((entry) => condition(entry.floatPartValue) ?? [])),
+      ];
+      const ranges = parts.map((part) => DMARKET_FLOAT_PARTS[part]);
 
-      return {
-        price: Number(level.price),
-        amount: Number(level.amount),
-        floatPart: condition(attribute.floatPartValue),
-        paintSeed: toNumber(attribute.paintSeed),
-        phase: normalizeMarketPhase(attribute.phaseTitle),
-      };
+      const mixed = level.attributes.some(
+        (entry) =>
+          entry.paintSeed !== attribute.paintSeed || entry.phaseTitle !== attribute.phaseTitle,
+      );
+
+      if (mixed || ranges.some((range) => !range)) {
+        return [];
+      }
+
+      return [
+        {
+          market: 'dmarket',
+          price: Number(level.price),
+          amount: Number(level.amount),
+          floatRanges: mergeRanges(ranges),
+          floatPart: parts.length > 0 ? parts.join(', ') : null,
+          paintSeed: toNumber(attribute.paintSeed),
+          phase: normalizeMarketPhase(attribute.phaseTitle),
+        },
+      ];
     });
 
     return { offers, orders };

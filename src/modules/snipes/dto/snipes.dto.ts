@@ -115,6 +115,14 @@ export class SnipesQueryDto {
   @Max(50)
   feeDmarket = DEFAULT_FEE_PERCENT;
 
+  @ApiPropertyOptional({ description: 'CSFloat seller fee, %', default: 2 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  feeCsfloat = 2;
+
   @ApiPropertyOptional({ default: 30 })
   @IsOptional()
   @Type(() => Number)
@@ -161,6 +169,9 @@ export class SnipeViewDto {
   @ApiProperty({ nullable: true })
   phase!: string | null;
 
+  @ApiProperty({ enum: ['dmarket', 'csfloat'] })
+  orderMarket!: 'dmarket' | 'csfloat';
+
   @ApiProperty({ description: 'Cents' })
   orderPrice!: number;
 
@@ -169,8 +180,12 @@ export class SnipeViewDto {
   @ApiProperty({ nullable: true, description: 'DMarket float bucket the order asks for' })
   orderFloatPart!: string | null;
 
-  @ApiProperty({ nullable: true, type: [Number] })
-  orderFloatRange!: [number, number] | null;
+  @ApiProperty({
+    type: 'array',
+    items: { type: 'array', items: { type: 'number' } },
+    description: 'Float ranges the order accepts, empty for any float',
+  })
+  orderFloatRanges!: [number, number][];
 
   @ApiProperty({ nullable: true })
   orderPaintSeed!: number | null;
@@ -178,7 +193,7 @@ export class SnipeViewDto {
   @ApiProperty({ nullable: true })
   orderPhase!: string | null;
 
-  @ApiProperty({ description: 'After the DMarket seller fee, cents' })
+  @ApiProperty({ description: 'After the seller fee of the order market, cents' })
   profit!: number;
 
   percent!: number;
@@ -198,6 +213,6 @@ export class SnipesPageDto {
   @ApiProperty({ description: 'Skins already scanned in the current pass' })
   checked!: number;
 
-  @ApiProperty({ description: 'Skins with a float and DMarket buy orders' })
+  @ApiProperty({ description: 'Skins with a float and buy orders' })
   candidates!: number;
 }

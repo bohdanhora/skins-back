@@ -14,8 +14,10 @@ const offer = (price: number, phase: string): DepthOffer => ({
 });
 
 const order = (price: number, phase: string | null, amount = 1): DepthOrder => ({
+  market: 'dmarket',
   price,
   amount,
+  floatRanges: [],
   floatPart: null,
   paintSeed: null,
   phase,
@@ -32,7 +34,7 @@ describe('summarizePhaseDepth', () => {
     order(741_000, 'black-pearl'),
     order(400_000, 'sapphire', 2),
     order(100_000, null, 3),
-    { ...order(130_000, null), floatPart: 'FN-0' },
+    { ...order(130_000, null), floatRanges: [[0, 0.01] as const], floatPart: 'FN-0' },
   ];
 
   it('prices the plain item by common phases and ignores rare phase buy orders', () => {

@@ -1,3 +1,4 @@
+import { DMARKET_FLOAT_PARTS } from './float';
 import {
   findSnipes,
   liveOrders,
@@ -21,8 +22,10 @@ const offer = (
 });
 
 const order = (price: number, extra: Partial<DepthOrder> = {}): DepthOrder => ({
+  market: 'dmarket',
   price,
   amount: 1,
+  floatRanges: extra.floatPart ? [DMARKET_FLOAT_PARTS[extra.floatPart]] : [],
   floatPart: null,
   paintSeed: null,
   phase: null,
@@ -115,7 +118,29 @@ describe('findSnipes', () => {
   it('counts the DMarket seller fee in the profit', () => {
     const [snipe] = findSnipes([offer(2700, 0.16)], [order(5400, { floatPart: 'FT-0' })]);
 
-    expect(snipeProfit(snipe, 0.05)).toBe(5130 - 2700);
+    expect(snipeProfit(snipe, { dmarket: 0.05, csfloat: 0.02 })).toBe(5130 - 2700);
+  });
+
+  it('counts the fee of the market that holds the order', () => {
+    const [snipe] = findSnipes(
+      [offer(2700, 0.16)],
+      [order(5400, { market: 'csfloat', floatRanges: [[0.15, 0.179]] })],
+    );
+
+    expect(snipe.orderMarket).toBe('csfloat');
+    expect(snipeProfit(snipe, { dmarket: 0.05, csfloat: 0.02 })).toBe(5292 - 2700);
+  });
+
+  it('accepts a float in any of the ranges one order asks for', () => {
+    const byParts = order(1, {
+      floatRanges: [
+        [0, 0.01],
+        [0.02, 0.03],
+      ],
+    });
+
+    expect(orderAccepts(byParts, offer(1, 0.025))).toBe(true);
+    expect(orderAccepts(byParts, offer(1, 0.015))).toBe(false);
   });
 });
 

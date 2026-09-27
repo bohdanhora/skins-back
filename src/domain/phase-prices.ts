@@ -27,7 +27,7 @@ export const hasDopplerPhases = (marketHashName: string): boolean =>
   DOPPLER_FAMILY.test(marketHashName);
 
 const isUnconditional = (order: DepthOrder): boolean =>
-  order.floatPart === null && order.paintSeed === null;
+  order.floatRanges.length === 0 && order.paintSeed === null;
 
 const quoteOf = (offers: DepthOffer[], orders: DepthOrder[]): PhaseQuote => {
   const prices = offers.map((offer) => offer.price).filter((price) => price > 0);

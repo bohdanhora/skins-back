@@ -35,3 +35,18 @@ export const inRange = (value: number, from?: number, to?: number): boolean =>
 
 export const overlaps = (range: FloatRange, from?: number, to?: number): boolean =>
   (to === undefined || range[0] < to) && (from === undefined || range[1] > from);
+
+export const mergeRanges = (ranges: readonly FloatRange[]): FloatRange[] =>
+  [...ranges]
+    .sort((left, right) => left[0] - right[0])
+    .reduce<FloatRange[]>((merged, range) => {
+      const last = merged.at(-1);
+
+      if (last && range[0] <= last[1]) {
+        merged[merged.length - 1] = [last[0], Math.max(last[1], range[1])];
+      } else {
+        merged.push(range);
+      }
+
+      return merged;
+    }, []);

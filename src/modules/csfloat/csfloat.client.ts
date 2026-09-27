@@ -18,6 +18,7 @@ import {
   mergeDailySales,
 } from '../../domain/phase-prices';
 import { type DailySales, type SalePrice } from '../../domain/sales';
+import { type DepthOrder } from '../../domain/float-snipes';
 import { MarketId } from '../../domain/market-links';
 import {
   paintIndexForPhase,
@@ -30,6 +31,9 @@ const LISTINGS_URL = 'https://csfloat.com/api/v1/listings';
 const PRICE_LIST_URL = `${LISTINGS_URL}/price-list`;
 const MAX_LISTINGS = 50;
 const HISTORY_URL = 'https://csfloat.com/api/v1/history';
+const SIMILAR_ORDERS_URL = 'https://csfloat.com/api/v1/buy-orders/similar-orders';
+const MAX_BUY_ORDERS = 100;
+const FLOAT_POINT = 1e-6;
 const HISTORY_DAYS = 56;
 const DAY_MS = 86_400_000;
 
@@ -157,6 +161,15 @@ interface RawCsfloatPrice {
   min_price: number;
 }
 
+export interface RawCsfloatBuyOrder {
+  price: number;
+  qty: number;
+  expression?: string | null;
+  hybrid_properties?: Record<string, unknown> | null;
+}
+
+const HYBRID_KEYS = new Set(['min_float', 'max_float', 'paint_seed']);
+
 interface RawCsfloatDay {
   day: string;
   count: number;
@@ -194,6 +207,7 @@ export class CsfloatClient {
   private readonly gate = new RateGate(USER_RESERVE, FALLBACK_PAUSE_MS);
   private readonly salesGate = new RateGate(USER_RESERVE, FALLBACK_PAUSE_MS);
   private readonly graphGate = new RateGate(USER_RESERVE, FALLBACK_PAUSE_MS);
+  private readonly ordersGate = new RateGate(USER_RESERVE, FALLBACK_PAUSE_MS);
 
   constructor(@Inject(csfloatConfig.KEY) private readonly config: CsfloatConfig) {}
 
@@ -210,11 +224,12 @@ export class CsfloatClient {
 
     if (path.startsWith('/api/v1/history/') && path.endsWith('/sales')) return this.salesGate;
     if (path.startsWith('/api/v1/history/') && path.endsWith('/graph')) return this.graphGate;
+    if (path.startsWith('/api/v1/buy-orders/')) return this.ordersGate;
 
     return this.gate;
   }
 
-  private async call<T>(url: string, options: CallOptions = {}): Promise<T> {
+  private async call<T>(url: string, options: CallOptions = {}, payload?: unknown): Promise<T> {
     const { background = false, retries = 1 } = options;
     const gate = this.gateFor(url);
 
@@ -224,10 +239,13 @@ export class CsfloatClient {
       if (until !== null) throw new CsfloatPausedError(url, until);
 
       const response = await fetch(url, {
+        method: payload === undefined ? 'GET' : 'POST',
         headers: {
           Accept: 'application/json',
+          ...(payload === undefined ? {} : { 'Content-Type': 'application/json' }),
           ...(this.config.apiKey ? { Authorization: this.config.apiKey } : {}),
         },
+        ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
 
@@ -420,6 +438,25 @@ export class CsfloatClient {
     };
   }
 
+  async fetchBuyOrders(
+    name: string,
+    float: number | null,
+    options: CallOptions = {},
+  ): Promise<DepthOrder[]> {
+    const response = await this.call<{ data?: RawCsfloatBuyOrder[] }>(
+      `${SIMILAR_ORDERS_URL}?limit=${MAX_BUY_ORDERS}`,
+      options,
+      {
+        market_hash_name: name,
+        ...(float === null
+          ? {}
+          : { hybrid_properties: { min_float: float, max_float: float + FLOAT_POINT } }),
+      },
+    );
+
+    return (response.data ?? []).flatMap((row) => toBuyOrder(row) ?? []);
+  }
+
   async fetchRecentSales(name: string, options: CallOptions = {}): Promise<CsfloatSale[]> {
     const rows = await this.call<RawCsfloatSale[]>(
       `${HISTORY_URL}/${encodeURIComponent(name)}/sales`,
@@ -539,3 +576,23 @@ const readBlue = (raw: RawBlueGem | null | undefined): CsfloatBlue | null =>
 export const unwrapCsfloatListings = (
   response: RawCsfloatListing[] | RawCsfloatResponse,
 ): RawCsfloatListing[] => (Array.isArray(response) ? response : response.data);
+
+export const toBuyOrder = (row: RawCsfloatBuyOrder): DepthOrder | null => {
+  const hybrid = row.hybrid_properties ?? {};
+
+  if (row.expression || Object.keys(hybrid).some((key) => !HYBRID_KEYS.has(key))) return null;
+
+  const from = typeof hybrid.min_float === 'number' ? hybrid.min_float : null;
+  const to = typeof hybrid.max_float === 'number' ? hybrid.max_float : null;
+  const paintSeed = typeof hybrid.paint_seed === 'number' ? hybrid.paint_seed : null;
+
+  return {
+    market: 'csfloat',
+    price: row.price,
+    amount: row.qty,
+    floatRanges: from === null && to === null ? [] : [[from ?? 0, to ?? 1]],
+    floatPart: null,
+    paintSeed,
+    phase: null,
+  };
+};

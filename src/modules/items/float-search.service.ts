@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { blueShare } from '../../domain/blue-gem';
-import { DMARKET_FLOAT_PARTS, inRange, overlaps } from '../../domain/float';
+import { inRange, overlaps } from '../../domain/float';
 import { liveOrders } from '../../domain/float-snipes';
 import { MarketId, dmarketListingUrl } from '../../domain/market-links';
 import { parseVariantName, type MarketPhase } from '../../domain/market-variant';
@@ -134,14 +134,22 @@ export class FloatSearchService {
           })),
         },
         orders: liveOrders(offers, orders)
-          .filter((order) => order.paintSeed === null && order.phase === null)
+          .filter(
+            (order) =>
+              order.paintSeed === null &&
+              order.phase === null &&
+              (order.floatRanges.length === 0 ||
+                order.floatRanges.some((range) => overlaps(range, from, to))),
+          )
           .map((order) => ({
             price: order.price,
             amount: order.amount,
             floatPart: order.floatPart,
-            range: order.floatPart ? [...(DMARKET_FLOAT_PARTS[order.floatPart] ?? [0, 1])] : null,
+            range:
+              order.floatRanges.length > 0
+                ? [order.floatRanges[0][0], order.floatRanges[order.floatRanges.length - 1][1]]
+                : null,
           }))
-          .filter((order) => !order.range || overlaps([order.range[0], order.range[1]], from, to))
           .sort((left, right) => right.price - left.price)
           .slice(0, MAX_ORDERS) as FloatBuyOrderDto[],
       };

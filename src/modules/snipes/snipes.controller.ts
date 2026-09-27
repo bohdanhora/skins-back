@@ -2,7 +2,6 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { blueShare } from '../../domain/blue-gem';
-import { DMARKET_FLOAT_PARTS } from '../../domain/float';
 import { snipeProfit } from '../../domain/float-snipes';
 import { dmarketItemUrl, dmarketListingUrl } from '../../domain/market-links';
 import { ItemIndexService } from '../items/item-index.service';
@@ -17,12 +16,6 @@ import {
 import { FloatSnipeScannerService } from './float-snipe-scanner.service';
 
 const PERCENT = 100;
-
-const floatRange = (floatPart: string | null): [number, number] | null => {
-  const range = floatPart ? DMARKET_FLOAT_PARTS[floatPart] : undefined;
-
-  return range ? [range[0], range[1]] : null;
-};
 
 @ApiTags('snipes')
 @Controller('snipes')
@@ -39,7 +32,7 @@ export class SnipesController {
   })
   @ApiOkResponse({ type: SnipesPageDto })
   list(@Query() query: SnipesQueryDto): SnipesPageDto {
-    const fee = query.feeDmarket / PERCENT;
+    const fees = { dmarket: query.feeDmarket / PERCENT, csfloat: query.feeCsfloat / PERCENT };
     const words = (query.q ?? '').toLowerCase().split(/\s+/).filter(Boolean);
     const minPrice = query.minPrice !== undefined ? Math.round(query.minPrice * 100) : null;
     const maxPrice = query.maxPrice !== undefined ? Math.round(query.maxPrice * 100) : null;
@@ -58,13 +51,13 @@ export class SnipesController {
       }
 
       for (const snipe of result.snipes) {
-        const profit = snipeProfit(snipe, fee);
+        const profit = snipeProfit(snipe, fees);
 
         if (
           profit <= 0 ||
           profit < minProfit ||
           (query.specialOnly &&
-            !snipe.orderFloatPart &&
+            snipe.orderFloatRanges.length === 0 &&
             snipe.orderPaintSeed === null &&
             !snipe.orderPhase) ||
           (query.source !== SnipeSourceFilter.All && snipe.source !== (query.source as string)) ||
@@ -86,7 +79,7 @@ export class SnipesController {
           category: item.category,
           ...snipe,
           blue: blueShare(name, snipe.paintSeed),
-          orderFloatRange: floatRange(snipe.orderFloatPart),
+          orderFloatRanges: snipe.orderFloatRanges.map(([from, to]) => [from, to]),
           profit,
           percent: Math.round((profit / snipe.listingPrice) * 10_000) / 100,
           checkedAt: new Date(result.checkedAt).toISOString(),

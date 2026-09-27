@@ -17,6 +17,7 @@ import {
   type SnipeCandidate,
 } from '../../domain/float-snipes';
 import { cheapestPrice } from '../../domain/comparison';
+import { DMARKET_FLOAT_PARTS } from '../../domain/float';
 import { summarizeDepth } from '../../domain/phase-prices';
 import { parseVariantName } from '../../domain/market-variant';
 import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
@@ -36,6 +37,8 @@ const ERROR_PAUSE_MS = 5_000;
 const SAVE_EVERY = 100;
 const CSFLOAT_SCAN_INTERVAL_MS = 3 * 60_000;
 const CSFLOAT_BACKOFF_MS = 5 * 60_000;
+const CSFLOAT_ORDERS_INTERVAL_MS = 60_000;
+const CSFLOAT_ORDERS_TTL_MS = 30 * 60_000;
 
 export interface ItemSnipes {
   snipes: FloatSnipe[];
@@ -49,6 +52,16 @@ export interface SnipeScanProgress {
 
 const cheapest = (item: PricedItem): number | null => cheapestPrice(item);
 
+const restoreSnipe = (snipe: FloatSnipe): FloatSnipe => {
+  const range = snipe.orderFloatPart ? DMARKET_FLOAT_PARTS[snipe.orderFloatPart] : undefined;
+
+  return {
+    ...snipe,
+    orderMarket: snipe.orderMarket ?? 'dmarket',
+    orderFloatRanges: snipe.orderFloatRanges ?? (range ? [range] : []),
+  };
+};
+
 @Injectable()
 export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(FloatSnipeScannerService.name);
@@ -58,6 +71,8 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
   private stopped = false;
   private sinceSave = 0;
   private nextCsfloatScanAt = 0;
+  private nextCsfloatOrdersAt = 0;
+  private readonly csfloatOrderCache = new Map<string, { orders: DepthOrder[]; at: number }>();
 
   constructor(
     @Inject(appConfig.KEY) app: AppConfig,
@@ -88,7 +103,12 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     const cached = await this.cache.read<Record<string, ItemSnipes>>(CACHE_KEY);
 
     if (cached) {
-      this.results = new Map(Object.entries(cached.value));
+      this.results = new Map(
+        Object.entries(cached.value).map(([name, result]) => [
+          name,
+          { ...result, snipes: result.snipes.map(restoreSnipe) },
+        ]),
+      );
       this.logger.log(`Float finds restored from disk: ${this.results.size} items`);
     }
 
@@ -135,11 +155,50 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     this.board.recordDepth(name, summarizeDepth(offers, depth.orders));
 
     const candidates: SnipeCandidate[] = offers.map((offer) => ({ ...offer, source: 'dmarket' }));
+    const known = [...orders, ...this.cachedCsfloatOrders(name)];
 
-    candidates.push(...(await this.whiteMarketCandidates(name, orders)));
-    candidates.push(...(await this.csfloatCandidates(name, orders)));
+    candidates.push(...(await this.whiteMarketCandidates(name, known)));
+    candidates.push(...(await this.csfloatCandidates(name, known)));
 
-    return findSnipes(candidates, orders);
+    return findSnipes(candidates, [...orders, ...(await this.csfloatOrders(name, candidates))]);
+  }
+
+  private cachedCsfloatOrders(name: string): DepthOrder[] {
+    const cached = this.csfloatOrderCache.get(name);
+
+    return cached && Date.now() - cached.at < CSFLOAT_ORDERS_TTL_MS ? cached.orders : [];
+  }
+
+  private async csfloatOrders(name: string, candidates: SnipeCandidate[]): Promise<DepthOrder[]> {
+    const cachedAt = this.csfloatOrderCache.get(name)?.at ?? 0;
+    const floats = candidates.flatMap((candidate) => candidate.float ?? []);
+
+    if (
+      !this.csfloat.isEnabled ||
+      Date.now() - cachedAt < CSFLOAT_ORDERS_TTL_MS ||
+      Date.now() < this.nextCsfloatOrdersAt ||
+      floats.length === 0
+    ) {
+      return this.cachedCsfloatOrders(name);
+    }
+
+    this.nextCsfloatOrdersAt = Date.now() + CSFLOAT_ORDERS_INTERVAL_MS;
+
+    try {
+      const orders = await this.csfloat.fetchBuyOrders(name, Math.min(...floats), {
+        background: true,
+      });
+
+      this.csfloatOrderCache.set(name, { orders, at: Date.now() });
+
+      return orders;
+    } catch (error) {
+      if (error instanceof UpstreamError && error.status === 429) {
+        this.nextCsfloatOrdersAt = Date.now() + CSFLOAT_BACKOFF_MS;
+      }
+      this.logger.warn(`CSFloat buy orders for "${name}" failed: ${String(error)}`);
+      return [];
+    }
   }
 
   private async csfloatCandidates(name: string, orders: DepthOrder[]): Promise<SnipeCandidate[]> {
