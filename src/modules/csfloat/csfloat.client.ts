@@ -17,7 +17,7 @@ import {
   hasDopplerPhases,
   mergeDailySales,
 } from '../../domain/phase-prices';
-import { type DailySales } from '../../domain/sales';
+import { type DailySales, type SalePrice } from '../../domain/sales';
 import { MarketId } from '../../domain/market-links';
 import {
   paintIndexForPhase,
@@ -192,6 +192,8 @@ const REQUEST_TIMEOUT_MS = 20_000;
 export class CsfloatClient {
   private stickerIds: Promise<Map<string, number>> | null = null;
   private readonly gate = new RateGate(USER_RESERVE, FALLBACK_PAUSE_MS);
+  private readonly salesGate = new RateGate(USER_RESERVE, FALLBACK_PAUSE_MS);
+  private readonly graphGate = new RateGate(USER_RESERVE, FALLBACK_PAUSE_MS);
 
   constructor(@Inject(csfloatConfig.KEY) private readonly config: CsfloatConfig) {}
 
@@ -203,11 +205,21 @@ export class CsfloatClient {
     return this.gate.snapshot(Date.now());
   }
 
+  private gateFor(url: string): RateGate {
+    const path = new URL(url).pathname;
+
+    if (path.startsWith('/api/v1/history/') && path.endsWith('/sales')) return this.salesGate;
+    if (path.startsWith('/api/v1/history/') && path.endsWith('/graph')) return this.graphGate;
+
+    return this.gate;
+  }
+
   private async call<T>(url: string, options: CallOptions = {}): Promise<T> {
     const { background = false, retries = 1 } = options;
+    const gate = this.gateFor(url);
 
     for (let attempt = 0; ; attempt += 1) {
-      const until = this.gate.blockedUntil(background, Date.now());
+      const until = gate.blockedUntil(background, Date.now());
 
       if (until !== null) throw new CsfloatPausedError(url, until);
 
@@ -219,7 +231,7 @@ export class CsfloatClient {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
 
-      this.gate.record(
+      gate.record(
         {
           limit: response.headers.get('x-ratelimit-limit'),
           remaining: response.headers.get('x-ratelimit-remaining'),
@@ -234,7 +246,7 @@ export class CsfloatClient {
       const body = await response.text().catch(() => '');
 
       if (response.status === TOO_MANY_REQUESTS) {
-        throw new CsfloatPausedError(url, this.gate.blockedUntil(false, Date.now()) ?? Date.now());
+        throw new CsfloatPausedError(url, gate.blockedUntil(false, Date.now()) ?? Date.now());
       }
 
       if (response.status < SERVER_ERROR_FLOOR || attempt >= retries) {
@@ -431,6 +443,22 @@ export class CsfloatClient {
             },
           ]
         : [];
+    });
+  }
+
+  async fetchSalePrices(name: string, options: CallOptions = {}): Promise<SalePrice[]> {
+    const { marketHashName, phase } = parseVariantName(name);
+    const paintIndex = phase ? paintIndexForPhase(marketHashName, phase) : null;
+    const query = paintIndex === null ? '' : `?paint_index=${paintIndex}`;
+    const rows = await this.call<RawCsfloatSale[]>(
+      `${HISTORY_URL}/${encodeURIComponent(marketHashName)}/sales${query}`,
+      { retries: 0, ...options },
+    );
+
+    return (Array.isArray(rows) ? rows : []).flatMap((row) => {
+      const at = row.sold_at ? Date.parse(row.sold_at) : NaN;
+
+      return row.price > 0 && Number.isFinite(at) ? [{ price: row.price, at }] : [];
     });
   }
 

@@ -11,6 +11,7 @@ import {
 } from '../../config/app.config';
 import { CatalogService } from '../catalog/catalog.service';
 import { CsfloatClient } from '../csfloat/csfloat.client';
+import { MarketFloorsService } from './market-floors.service';
 import { PriceBoardService } from './price-board.service';
 import { SalesHistoryService } from './sales-history.service';
 
@@ -35,6 +36,17 @@ export class RateQuotaDto {
   pausedUntil!: string | null;
 }
 
+export class FloorsProgressDto {
+  checked!: number;
+  total!: number;
+}
+
+export class MarketFloorsProgressDto {
+  dmarket!: FloorsProgressDto;
+  csfloat!: FloorsProgressDto;
+  whiteMarket!: FloorsProgressDto;
+}
+
 export class StatusDto {
   whiteMarket!: MarketStatusDto;
   dmarket!: MarketStatusDto;
@@ -45,6 +57,13 @@ export class StatusDto {
   catalogItems!: number;
   salesChecked!: number;
   salesTotal!: number;
+
+  @ApiProperty({
+    type: MarketFloorsProgressDto,
+    description: 'Own sales history checked for items that are cheapest on each market',
+  })
+  floors!: MarketFloorsProgressDto;
+
   csfloatQuota!: RateQuotaDto;
 }
 
@@ -55,6 +74,7 @@ export class StatusController {
     private readonly board: PriceBoardService,
     private readonly catalog: CatalogService,
     private readonly sales: SalesHistoryService,
+    private readonly marketFloors: MarketFloorsService,
     private readonly csfloatClient: CsfloatClient,
     @Inject(whiteMarketConfig.KEY) private readonly whiteMarketSettings: WhiteMarketConfig,
     @Inject(dmarketConfig.KEY) private readonly dmarketSettings: DmarketConfig,
@@ -78,6 +98,7 @@ export class StatusController {
       catalogItems: this.catalog.size,
       salesChecked: progress.checked,
       salesTotal: progress.total,
+      floors: this.marketFloors.progress(),
       csfloatQuota: this.csfloatClient.quota(),
     };
   }

@@ -4,6 +4,7 @@ import { fetchJson } from '../../common/http/fetch-json';
 import { dmarketConfig, type DmarketConfig } from '../../config/app.config';
 import { readPreview } from '../../domain/inspect-gen';
 import {
+  dollarsToCents,
   placeFromPreview,
   toStickerItemName,
   toStickerNumber,
@@ -12,11 +13,19 @@ import {
   type Listing,
 } from '../../domain/listing';
 import { MarketId, dmarketListingUrl } from '../../domain/market-links';
-import { DmarketRateLimiter } from './dmarket-rate-limiter';
+import { normalizeMarketPhase, parseVariantName } from '../../domain/market-variant';
+import { type SalePrice } from '../../domain/sales';
+import { DmarketRateLimiter, type RequestPriority } from './dmarket-rate-limiter';
 import { DmarketSigner } from './dmarket-signer';
 
 const API_ORIGIN = 'https://api.dmarket.com';
 const OFFERS_PATH = '/marketplace-api/v2/offers';
+const LAST_SALES_PATH = '/trade-aggregator/v1/last-sales';
+const LAST_SALES_LIMIT = 500;
+
+interface RawLastSales {
+  sales?: { price: string; date: string; offerAttributes?: { phaseTitle?: string } }[];
+}
 const CS2_GAME_ID = 'a8db';
 const MAX_LIMIT = 100;
 
@@ -152,18 +161,49 @@ export class DmarketTradingClient {
     };
   }
 
-  private async get<T>(pathWithQuery: string): Promise<T> {
+  async fetchSalePrices(
+    name: string,
+    priority: RequestPriority = 'background',
+  ): Promise<SalePrice[]> {
+    const { marketHashName, phase } = parseVariantName(name);
+    const query = new URLSearchParams({
+      gameId: CS2_GAME_ID,
+      title: marketHashName,
+      limit: String(LAST_SALES_LIMIT),
+    });
+    const response = await this.get<RawLastSales>(
+      `${LAST_SALES_PATH}?${query.toString()}`,
+      priority,
+    );
+
+    return (response.sales ?? []).flatMap((sale) => {
+      const price = dollarsToCents(sale.price);
+      const at = Number(sale.date) * 1000;
+      const salePhase = normalizeMarketPhase(sale.offerAttributes?.phaseTitle);
+
+      return price > 0 && Number.isFinite(at) && (!phase || salePhase === phase)
+        ? [{ price, at }]
+        : [];
+    });
+  }
+
+  private async get<T>(
+    pathWithQuery: string,
+    priority: RequestPriority = 'interactive',
+  ): Promise<T> {
     if (!this.signer) {
       throw new Error('DMarket API keys are not configured');
     }
 
     const signer = this.signer;
 
-    return this.limiter.schedule(() =>
-      fetchJson<T>(`${API_ORIGIN}${pathWithQuery}`, {
-        headers: { ...signer.sign('GET', pathWithQuery) },
-        retries: 1,
-      }),
+    return this.limiter.schedule(
+      () =>
+        fetchJson<T>(`${API_ORIGIN}${pathWithQuery}`, {
+          headers: { ...signer.sign('GET', pathWithQuery) },
+          retries: 1,
+        }),
+      priority,
     );
   }
 }

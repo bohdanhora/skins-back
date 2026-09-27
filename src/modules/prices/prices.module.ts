@@ -5,6 +5,7 @@ import { DmarketModule } from '../dmarket/dmarket.module';
 import { CsfloatModule } from '../csfloat/csfloat.module';
 import { LisSkinsModule } from '../lis-skins/lis-skins.module';
 import { WhiteMarketModule } from '../white-market/white-market.module';
+import { MarketFloorsService } from './market-floors.service';
 import { PriceBoardService } from './price-board.service';
 import { SalesHistoryService } from './sales-history.service';
 import { StatusController } from './status.controller';
@@ -12,7 +13,7 @@ import { StatusController } from './status.controller';
 @Module({
   imports: [CatalogModule, WhiteMarketModule, DmarketModule, CsfloatModule, LisSkinsModule],
   controllers: [StatusController],
-  providers: [PriceBoardService, SalesHistoryService],
-  exports: [PriceBoardService, SalesHistoryService, CatalogModule],
+  providers: [PriceBoardService, SalesHistoryService, MarketFloorsService],
+  exports: [PriceBoardService, SalesHistoryService, MarketFloorsService, CatalogModule],
 })
 export class PricesModule {}

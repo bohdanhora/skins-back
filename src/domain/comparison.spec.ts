@@ -60,6 +60,21 @@ describe('findListingFlip', () => {
     });
   });
 
+  it('never sells above what the market actually pays', () => {
+    expect(
+      findListingFlip(quotes(quote(1000), quote(1300), null), fees, { dmarket: 1150 }),
+    ).toMatchObject({ sellOn: MarketId.Dmarket, sellPrice: 1150, profit: 1092 - 1000 });
+  });
+
+  it('does not trust a lone overpriced listing without sales to back it', () => {
+    expect(findListingFlip(quotes(quote(1000), quote(98_000), null), fees)?.sellOn).not.toBe(
+      MarketId.Dmarket,
+    );
+    expect(
+      findListingFlip(quotes(quote(1000), quote(1300, { listings: 1 }), null), fees)?.sellOn,
+    ).not.toBe(MarketId.Dmarket);
+  });
+
   it('reports a loss when fees eat the gap', () => {
     expect(findListingFlip(quotes(quote(1000), quote(1020), null), fees)!.profit).toBeLessThan(0);
   });

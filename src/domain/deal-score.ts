@@ -9,6 +9,7 @@ export interface DealScore {
 
 const RELIABLE_TREND_WEEK_SALES = 5;
 const RELIABLE_TREND_SALES = 20;
+const FULL_SIGNAL_PERCENT = 5;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
@@ -31,9 +32,12 @@ export const calculateDealScore = (
     sales.weekSales >= RELIABLE_TREND_WEEK_SALES && eightWeekSales >= RELIABLE_TREND_SALES
       ? clamp((sales.trendPercent ?? 0) / 3, -10, 5)
       : 0;
+  const strength = clamp(top.percent / FULL_SIGNAL_PERCENT, 0, 1);
   const score = Math.round(
     clamp(
-      percentPoints + moneyPoints + bidPoints + liquidityPoints + depthPoints + trendPoints,
+      percentPoints +
+        moneyPoints +
+        (bidPoints + liquidityPoints + depthPoints + trendPoints) * strength,
       0,
       100,
     ),

@@ -1,3 +1,5 @@
+import { MarketId, type SellMarketId } from './market-links';
+
 export interface DailySales {
   day: string;
   average: number;
@@ -15,6 +17,7 @@ export interface SalesStats {
 }
 
 export interface TopOffer {
+  market: MarketId;
   price: number;
   reference: number;
   discount: number;
@@ -86,29 +89,74 @@ export const summarizeSales = (days: DailySales[], now = Date.now()): SalesStats
   };
 };
 
+export interface SalePrice {
+  price: number;
+  at: number;
+}
+
+export interface MarketFloor {
+  floor: number;
+  sales: number;
+}
+
+export type HistoryMarketId = SellMarketId;
+
+export type MarketFloors = Partial<Record<HistoryMarketId, MarketFloor | null>>;
+
+const SALE_FLOOR_DAYS = 30;
+const MIN_FLOOR_SALES = 5;
+
+export const floorFromSales = (sales: SalePrice[], now = Date.now()): MarketFloor | null => {
+  const recent = sales
+    .filter((sale) => sale.price > 0 && now - sale.at < SALE_FLOOR_DAYS * DAY_MS)
+    .map((sale) => sale.price)
+    .sort((a, b) => a - b);
+
+  return recent.length >= MIN_FLOOR_SALES
+    ? { floor: quantile(recent, FLOOR_QUANTILE), sales: recent.length }
+    : null;
+};
+
+export const floorFromDays = (days: DailySales[], now = Date.now()): MarketFloor | null => {
+  const stats = summarizeSales(days, now);
+
+  return stats && stats.eightWeekSales !== undefined && stats.eightWeekSales >= MIN_FLOOR_SALES
+    ? { floor: stats.floor, sales: stats.eightWeekSales }
+    : null;
+};
+
+const bidCover = (bid: number | null, bidFee: number, price: number): number | null =>
+  bid && bid > 0 ? Math.round(((bid * (1 - bidFee)) / price) * 1000) / 10 : null;
+
 export const findTopOffer = (
-  price: number | null,
+  prices: [MarketId, number][],
+  floors: MarketFloors,
   bid: number | null,
-  stats: SalesStats | null,
-  nextListing: number | null = null,
+  bidFee = 0,
 ): TopOffer | null => {
-  if (price === null || price <= 0 || !stats) {
-    return null;
+  let best: TopOffer | null = null;
+
+  for (const [market, price] of prices) {
+    const floor = market === MarketId.LisSkins ? null : floors[market];
+    const otherPrices = prices.filter(([other]) => other !== market).map(([, other]) => other);
+    const reference = Math.min(floor?.floor ?? 0, ...otherPrices);
+
+    if (!floor || price <= 0 || reference <= price) continue;
+
+    const discount = reference - price;
+    const percent = Math.round((discount / reference) * 10_000) / 100;
+
+    if (!best || percent > best.percent) {
+      best = {
+        market,
+        price,
+        reference,
+        discount,
+        percent,
+        bidCover: bidCover(bid, bidFee, price),
+      };
+    }
   }
 
-  const reference = Math.min(stats.floor, nextListing ?? Infinity);
-
-  if (reference <= price) {
-    return null;
-  }
-
-  const discount = reference - price;
-
-  return {
-    price,
-    reference,
-    discount,
-    percent: Math.round((discount / reference) * 10_000) / 100,
-    bidCover: bid ? Math.round((bid / price) * 1000) / 10 : null,
-  };
+  return best;
 };

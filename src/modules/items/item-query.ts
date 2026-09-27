@@ -4,11 +4,11 @@ import {
   findInstantFlip,
   findListingFlip,
   findPriceGap,
-  secondPrice,
+  listedPrices,
   totalListings,
   type Fees,
 } from '../../domain/comparison';
-import { findTopOffer, type SalesStats } from '../../domain/sales';
+import { findTopOffer, type MarketFloors, type SalesStats } from '../../domain/sales';
 import { calculateDealScore } from '../../domain/deal-score';
 import { hasDopplerPhases } from '../../domain/phase-prices';
 import { type ItemViewDto } from './dto/item-view.dto';
@@ -33,13 +33,23 @@ export const feesFrom = (
 
 export type SalesLookup = (name: string) => SalesStats | null;
 
-export const toView = (item: IndexedItem, fees: Fees, sales: SalesStats | null): ItemViewDto => {
-  const top = findTopOffer(
-    cheapestPrice(item),
-    item.dmarket?.bid ?? null,
-    sales,
-    secondPrice(item),
-  );
+export type FloorsLookup = (name: string) => MarketFloors;
+
+const noFloors: FloorsLookup = () => ({});
+
+const lowest = (...values: (number | null | undefined)[]): number | null => {
+  const known = values.filter((value): value is number => typeof value === 'number');
+
+  return known.length > 0 ? Math.min(...known) : null;
+};
+
+export const toView = (
+  item: IndexedItem,
+  fees: Fees,
+  sales: SalesStats | null,
+  floors: MarketFloors = {},
+): ItemViewDto => {
+  const top = findTopOffer(listedPrices(item), floors, item.dmarket?.bid ?? null, fees.dmarket);
 
   return {
     name: item.name,
@@ -55,7 +65,11 @@ export const toView = (item: IndexedItem, fees: Fees, sales: SalesStats | null):
     csfloat: item.csfloat,
     lisSkins: item.lisSkins,
     gap: findPriceGap(item),
-    flip: findListingFlip(item, fees),
+    flip: findListingFlip(item, fees, {
+      dmarket: lowest(sales?.floor, floors.dmarket?.floor),
+      csfloat: floors.csfloat?.floor ?? null,
+      whiteMarket: floors.whiteMarket?.floor ?? null,
+    }),
     instant: findInstantFlip(item, fees),
     sales,
     top,
@@ -190,6 +204,7 @@ export const queryItems = (
   rows: readonly IndexedItem[],
   query: ItemsQueryDto,
   salesOf: SalesLookup,
+  floorsOf: FloorsLookup = noFloors,
 ): ItemsPage => {
   const fees = feesFrom(query);
   const words = (query.q ?? '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -220,7 +235,7 @@ export const queryItems = (
       continue;
     }
 
-    const view = toView(row, fees, salesOf(row.name));
+    const view = toView(row, fees, salesOf(row.name), floorsOf(row.name));
     const price = cheapestListing(view);
 
     if (

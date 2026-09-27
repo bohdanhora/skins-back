@@ -63,11 +63,15 @@ export class SalesStatsDto {
 }
 
 export class TopOfferDto {
-  @ApiProperty({ description: 'Cheapest listing across all markets, cents' })
+  @ApiProperty({ enum: MarketId, description: 'Where the listing is, judged by its own sales' })
+  market!: MarketId;
+
+  @ApiProperty({ description: 'Cheapest listing on that market, cents' })
   price!: number;
 
   @ApiProperty({
-    description: 'Sales floor or the other market listing, whichever is lower, cents',
+    description:
+      "Lower quartile of that market's recent sales or the cheapest listing elsewhere, whichever is lower, cents",
   })
   reference!: number;
 
@@ -76,7 +80,10 @@ export class TopOfferDto {
 
   percent!: number;
 
-  @ApiProperty({ nullable: true, description: 'Best DMarket buy order as % of the price' })
+  @ApiProperty({
+    nullable: true,
+    description: 'Best DMarket buy order after the DMarket fee, as % of the price',
+  })
   bidCover!: number | null;
 }
 

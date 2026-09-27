@@ -1,4 +1,5 @@
-import { findTopOffer, summarizeSales, type DailySales } from './sales';
+import { MarketId } from './market-links';
+import { findTopOffer, floorFromSales, summarizeSales, type DailySales } from './sales';
 
 const NOW = Date.parse('2026-09-25T12:00:00Z');
 
@@ -38,33 +39,74 @@ describe('summarizeSales', () => {
   });
 });
 
+describe('floorFromSales', () => {
+  const sale = (price: number, daysAgo = 1) => ({ price, at: NOW - daysAgo * 86_400_000 });
+
+  it('takes the lower quartile of single sales in the last month', () => {
+    expect(
+      floorFromSales(
+        [sale(12000), sale(12500), sale(13000), sale(14000), sale(20000), sale(1000, 40)],
+        NOW,
+      ),
+    ).toEqual({ floor: 12500, sales: 5 });
+  });
+
+  it('needs a few recent sales', () => {
+    expect(floorFromSales([sale(12000), sale(12500), sale(13000), sale(14000)], NOW)).toBeNull();
+  });
+});
+
 describe('findTopOffer', () => {
-  const stats = { floor: 77000, lastDay: '2026-09-25', lastAverage: 77000, weekSales: 12 };
+  const floors = {
+    csfloat: { floor: 12500, sales: 40 },
+    dmarket: { floor: 14300, sales: 500 },
+  };
 
-  it('measures the discount below the sales floor and how close the buy orders are', () => {
-    expect(findTopOffer(65000, 64000, stats)).toEqual({
-      price: 65000,
-      reference: 77000,
-      discount: 12000,
-      percent: 15.58,
-      bidCover: 98.5,
+  it('judges each market by its own sales', () => {
+    expect(
+      findTopOffer(
+        [
+          [MarketId.Csfloat, 12063],
+          [MarketId.Dmarket, 13086],
+        ],
+        floors,
+        null,
+      ),
+    ).toEqual({
+      market: MarketId.Csfloat,
+      price: 12063,
+      reference: 12500,
+      discount: 437,
+      percent: 3.5,
+      bidCover: null,
     });
   });
 
-  it('is not an offer at or above the floor', () => {
-    expect(findTopOffer(77000, 76000, stats)).toBeNull();
-    expect(findTopOffer(65000, null, null)).toBeNull();
+  it('is not an offer when a market is at its usual price', () => {
+    expect(
+      findTopOffer([[MarketId.Csfloat, 12600]], { csfloat: { floor: 12500, sales: 40 } }, null),
+    ).toBeNull();
   });
 
-  it('never counts a discount past the next cheapest listing', () => {
-    expect(findTopOffer(65000, null, stats, 70000)).toMatchObject({
-      reference: 70000,
-      discount: 5000,
-    });
-    expect(findTopOffer(65000, null, stats, 65000)).toBeNull();
+  it('never counts a discount past a cheaper listing elsewhere', () => {
+    expect(
+      findTopOffer(
+        [
+          [MarketId.Dmarket, 13000],
+          [MarketId.Csfloat, 13200],
+        ],
+        { dmarket: { floor: 15000, sales: 100 } },
+        null,
+      ),
+    ).toMatchObject({ market: MarketId.Dmarket, reference: 13200, discount: 200 });
   });
 
-  it('works without buy orders', () => {
-    expect(findTopOffer(65000, null, stats)?.bidCover).toBeNull();
+  it('skips markets without their own history', () => {
+    expect(findTopOffer([[MarketId.LisSkins, 10000]], floors, null)).toBeNull();
+    expect(findTopOffer([[MarketId.WhiteMarket, 10000]], floors, null)).toBeNull();
+  });
+
+  it('measures the buy order after the DMarket fee', () => {
+    expect(findTopOffer([[MarketId.Csfloat, 12000]], floors, 12400, 0.05)?.bidCover).toBe(98.2);
   });
 });

@@ -3,6 +3,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { ListingsService } from '../listings/listings.service';
 import { type ListingsDto } from '../listings/dto/listings.dto';
 import { PriceBoardService } from '../prices/price-board.service';
+import { MarketFloorsService } from '../prices/market-floors.service';
 import { SalesHistoryService } from '../prices/sales-history.service';
 import { type ItemViewDto, type ItemsPageDto, type SalesChartDto } from './dto/item-view.dto';
 import { summarizeSales, type DailySales } from '../../domain/sales';
@@ -29,6 +30,7 @@ export class ItemsService {
     private readonly board: PriceBoardService,
     private readonly listings: ListingsService,
     private readonly sales: SalesHistoryService,
+    private readonly floors: MarketFloorsService,
     private readonly csfloat: CsfloatClient,
     private readonly whiteMarketStats: WhiteMarketStatsClient,
   ) {}
@@ -36,7 +38,12 @@ export class ItemsService {
   private readonly marketSales = new Map<string, { days: DailySales[]; at: number }>();
 
   list(query: ItemsQueryDto): ItemsPageDto {
-    const page = queryItems(this.index.all(), query, (name) => this.sales.get(name));
+    const page = queryItems(
+      this.index.all(),
+      query,
+      (name) => this.sales.get(name),
+      (name) => this.floors.get(name),
+    );
     const stamps = Object.values(this.board.state)
       .map((state) => state.updatedAt)
       .filter((stamp): stamp is string => stamp !== null);
@@ -62,7 +69,7 @@ export class ItemsService {
       time ? new Date(time).toISOString() : fallback;
 
     return {
-      ...toView(item, feesFrom(fees), this.sales.get(name)),
+      ...toView(item, feesFrom(fees), this.sales.get(name), this.floors.get(name)),
       checkedAt: {
         whiteMarket: state.whiteMarket.updatedAt,
         dmarket: iso(checked.dmarket, state.dmarket.updatedAt),

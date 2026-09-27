@@ -28,6 +28,8 @@ export interface Flip {
 }
 
 const ONE_CENT = 1;
+const MIN_UNCONFIRMED_LISTINGS = 5;
+const MAX_UNCONFIRMED_MARKUP = 1.5;
 
 const round2 = (value: number): number => Math.round(value * 100) / 100;
 
@@ -79,7 +81,13 @@ export const findPriceGap = (quotes: Partial<MarketQuotes>): PriceGap | null => 
   return { cheaper, amount: high - low, percent: round2(((high - low) / high) * 100) };
 };
 
-export const findListingFlip = (quotes: Partial<MarketQuotes>, fees: Fees): Flip | null => {
+export type SaleLevels = Partial<Record<SellMarketId, number | null>>;
+
+export const findListingFlip = (
+  quotes: Partial<MarketQuotes>,
+  fees: Fees,
+  saleLevels: SaleLevels = {},
+): Flip | null => {
   const prices = listedPrices(quotes);
 
   if (prices.length < 2) {
@@ -92,7 +100,17 @@ export const findListingFlip = (quotes: Partial<MarketQuotes>, fees: Fees): Flip
     for (const [sellOn, listedSellPrice] of prices) {
       if (buyOn === sellOn || !isSellMarket(sellOn)) continue;
 
-      const sellPrice = listedSellPrice - ONE_CENT;
+      const level = saleLevels[sellOn] ?? null;
+
+      if (
+        level === null &&
+        ((quotes[sellOn]?.listings ?? 0) < MIN_UNCONFIRMED_LISTINGS ||
+          listedSellPrice > buyPrice * MAX_UNCONFIRMED_MARKUP)
+      ) {
+        continue;
+      }
+
+      const sellPrice = Math.min(listedSellPrice - ONE_CENT, level ?? Infinity);
       const profit = netAfterFee(sellPrice, fees[sellOn]) - buyPrice;
       const candidate = {
         buyOn,
