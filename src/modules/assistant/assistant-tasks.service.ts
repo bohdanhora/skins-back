@@ -6,14 +6,26 @@ import {
 } from '@nestjs/common';
 
 import { extractJson, oneOf, positiveNumber, textList } from '../../domain/assistant-providers';
+import { searchCandidates, type SearchRow } from '../../domain/assistant-search';
+import { findFloatDeals, type FloatLot } from '../../domain/float-deals';
 import { MARKET_PHASES } from '../../domain/market-variant';
 import { BettingService } from '../betting/betting.service';
 import type { MatchForecastDto, MarketOfferDto } from '../betting/dto/betting.dto';
 import { CatalogService } from '../catalog/catalog.service';
+import { BlueGemService } from '../items/blue-gem.service';
+import { BlueValueService } from '../items/blue-value.service';
+import { FloatSearchService } from '../items/float-search.service';
+import { ItemIndexService } from '../items/item-index.service';
 import { CsfloatClient, CsfloatPausedError } from '../csfloat/csfloat.client';
 import { PriceBoardService } from '../prices/price-board.service';
+import { SalesHistoryService } from '../prices/sales-history.service';
 import { AssistantService } from './assistant.service';
 import type {
+  BluePickDto,
+  BluePicksDto,
+  BluePicksInputDto,
+  FloatPicksDto,
+  FloatPicksInputDto,
   MatchBriefDto,
   PurchaseDraftDto,
   PurchaseDraftInputDto,
@@ -50,6 +62,14 @@ const CATEGORIES = [
 const WEARS = ['FN', 'MW', 'FT', 'WW', 'BS'] as const;
 const EDITIONS = ['normal', 'stattrak', 'souvenir'] as const;
 const SORTS = ['priceAsc', 'priceDesc', 'sales8w', 'belowSales', 'benefit', 'fresh'] as const;
+const MAX_CANDIDATES = 250;
+const BLUE_CANDIDATES = 8;
+const BLUE_PICKS = 5;
+const FLOOR_MULTIPLE = 3;
+const BLUE_PICKS_TTL_MS = 30 * 60_000;
+const FLOAT_PICKS = 5;
+const DEFAULT_DMARKET_FEE = 5;
+const MAX_PICKS = 12;
 
 const BRIEF_SYSTEM = `You are a careful CS2 esports betting analyst working inside a tool that already computed a map-by-map forecast.
 Rules:
@@ -71,6 +91,30 @@ const SEARCH_SYSTEM = `You turn a CS2 skin search request into filters for a pri
 Answer with a single JSON object and nothing else:
 {"q":"words to match in the item name, English","category":"${CATEGORIES.join('|')}","wear":"${WEARS.join('|')}","edition":"${EDITIONS.join('|')}","phase":"${MARKET_PHASES.join('|')}","minPrice":10,"maxPrice":200,"sort":"${SORTS.join('|')}","note":"in Russian, only when part of the request cannot be expressed with these filters"}
 Leave out every field the request does not mention. Prices are in US dollars. Knife and glove names start with "★" but q must not contain it.`;
+
+const PICK_SYSTEM = `You pick CS2 skins for a trader from a list of real items that are on sale right now.
+Rules:
+- Choose only names from the list, copied exactly. Never add anything that is not in the list.
+- Keep only items that satisfy every part of the request: knife or weapon type, finish, phase, wear, edition, price.
+- If the request asks for the best or most worthwhile option, prefer items that sell often at a sensible price. Otherwise rank by how well they fit.
+- Give at most 12 picks, fewer is fine. The reason is at most 15 words in Russian and may only use facts from the list: price, lots on sale, recent sales.
+- If nothing in the list fits, return an empty list and explain in the note.
+Answer with a single JSON object and nothing else:
+{"picks":[{"name":"exact name from the list","reason":"..."}],"note":"in Russian, only when something important must be said"}`;
+
+const BLUE_SYSTEM = `You explain Case Hardened blue gem listings to a CS2 trader.
+Every number comes from the JSON you are given: price, blue share, the estimate from similar recent CSFloat sales, how many similar sales it rests on and the margin. Never invent or change numbers.
+For each listing write one short honest sentence in Russian: why it is worth a look or what the catch is (few similar sales, blue by calculator only, estimate barely above the price).
+Then one or two sentences of summary. If nothing is clearly underpriced, say so plainly.
+Answer with a single JSON object and nothing else:
+{"reasons":{"<id>":"..."},"summary":"..."}`;
+
+const FLOAT_SYSTEM = `You explain CS2 skin listings found by float to a trader.
+Every number comes from the JSON you are given: price, float, the cheapest listing with a worse float, the saving against them, and the best DMarket buy order that accepts this float with the profit after the fee. Never invent or change numbers.
+For each listing write one short honest sentence in Russian: why it is worth a look or what the catch is (the saving rests on few listings, the order may vanish, the float gain is tiny).
+Then one or two sentences of summary.
+Answer with a single JSON object and nothing else:
+{"reasons":{"<index>":"..."},"summary":"..."}`;
 
 const compactOffer = (offer: MarketOfferDto) => ({
   kind: offer.kind,
@@ -117,6 +161,10 @@ const matchFacts = (match: MatchForecastDto) => ({
 @Injectable()
 export class AssistantTasksService {
   private readonly briefs = new Map<string, { at: number; value: MatchBriefDto }>();
+  private readonly bluePicksCache = new Map<
+    string,
+    { at: number; value: { picks: BluePickDto[]; checked: number } }
+  >();
 
   constructor(
     private readonly assistant: AssistantService,
@@ -125,6 +173,11 @@ export class AssistantTasksService {
     private readonly csfloat: CsfloatClient,
     private readonly board: PriceBoardService,
     private readonly catalog: CatalogService,
+    private readonly index: ItemIndexService,
+    private readonly sales: SalesHistoryService,
+    private readonly blueGems: BlueGemService,
+    private readonly blueValues: BlueValueService,
+    private readonly floats: FloatSearchService,
   ) {}
 
   async brief(userId: string, matchId: number, refresh: boolean): Promise<MatchBriefDto> {
@@ -236,8 +289,7 @@ export class AssistantTasksService {
     const parsed = extractJson<Record<string, unknown>>(answer.text) ?? {};
     const minPrice = positiveNumber(parsed.minPrice);
     const maxPrice = positiveNumber(parsed.maxPrice);
-
-    return {
+    const filters: SmartSearchDto = {
       q:
         typeof parsed.q === 'string' && parsed.q.trim()
           ? parsed.q.replace(/★/g, '').trim()
@@ -251,6 +303,256 @@ export class AssistantTasksService {
       sort: oneOf(parsed.sort, SORTS),
       note: typeof parsed.note === 'string' && parsed.note.trim() ? parsed.note.trim() : undefined,
     };
+    const candidates = searchCandidates(this.searchRows(), filters, MAX_CANDIDATES);
+
+    if (candidates.length === 0) {
+      return { ...filters, picks: [] };
+    }
+
+    const list = candidates
+      .map((row) => {
+        const sales = this.sales.get(row.name);
+
+        return `${row.name} | $${((row.price ?? 0) / 100).toFixed(2)} | ${row.listings} lots | ${sales?.eightWeekSales ?? 0} sales in 8 weeks`;
+      })
+      .join('\n');
+    const picked = await this.client.ask(credentials, {
+      system: PICK_SYSTEM,
+      prompt: `Request: ${query}\n\nCandidates (name | cheapest price | lots on sale | recent sales):\n${list}`,
+    });
+    const choice = extractJson<{ picks?: unknown; note?: unknown }>(picked.text) ?? {};
+    const byName = new Map(candidates.map((row) => [row.name, row]));
+    const picks = (Array.isArray(choice.picks) ? choice.picks : [])
+      .flatMap((entry): { name: string; reason: string; price: number | null }[] => {
+        const pick = entry as { name?: unknown; reason?: unknown };
+        const row = typeof pick.name === 'string' ? byName.get(pick.name.trim()) : undefined;
+
+        return row
+          ? [
+              {
+                name: row.name,
+                reason: typeof pick.reason === 'string' ? pick.reason.trim() : '',
+                price: row.price,
+              },
+            ]
+          : [];
+      })
+      .filter((pick, index, all) => all.findIndex((entry) => entry.name === pick.name) === index)
+      .slice(0, MAX_PICKS);
+
+    return {
+      ...filters,
+      picks,
+      note:
+        typeof choice.note === 'string' && choice.note.trim() ? choice.note.trim() : filters.note,
+    };
+  }
+
+  async bluePicks(userId: string, input: BluePicksInputDto): Promise<BluePicksDto> {
+    const key = `${input.weapon}|${input.wear ?? ''}`;
+    const cached = this.bluePicksCache.get(key);
+    let ranked = cached?.value;
+
+    if (!cached || Date.now() - cached.at >= BLUE_PICKS_TTL_MS) {
+      ranked = await this.rankBlue(input);
+      this.bluePicksCache.set(key, { at: Date.now(), value: ranked });
+    }
+
+    const { picks, checked } = ranked!;
+    const csfloatPausedUntil = this.csfloat.quota().pausedUntil;
+    const credentials =
+      picks.length > 0 ? await this.assistant.credentials(userId).catch(() => null) : null;
+
+    if (!credentials) {
+      return { picks, summary: null, checked, csfloatPausedUntil };
+    }
+
+    const answer = await this.client.ask(credentials, {
+      system: BLUE_SYSTEM,
+      prompt: JSON.stringify(
+        picks.map((pick) => ({
+          id: pick.id,
+          name: pick.name,
+          pattern: pick.paintSeed,
+          bluePercent: pick.blue.playside,
+          blueSource: pick.source,
+          priceUsd: pick.price / 100,
+          estimateUsd: pick.estimate / 100,
+          marginUsd: pick.margin / 100,
+          similarSales: pick.comparableCount,
+        })),
+      ),
+    });
+    const parsed =
+      extractJson<{ reasons?: Record<string, unknown>; summary?: unknown }>(answer.text) ?? {};
+
+    return {
+      picks: picks.map((pick) => ({
+        ...pick,
+        reason:
+          typeof parsed.reasons?.[pick.id] === 'string'
+            ? (parsed.reasons[pick.id] as string).trim()
+            : '',
+      })),
+      summary:
+        typeof parsed.summary === 'string' && parsed.summary.trim() ? parsed.summary.trim() : null,
+      checked,
+      csfloatPausedUntil,
+    };
+  }
+
+  async floatPicks(userId: string, input: FloatPicksInputDto): Promise<FloatPicksDto> {
+    const search = await this.floats.search({
+      name: input.name,
+      floatFrom: input.floatFrom,
+      floatTo: input.floatTo,
+    });
+    const lots: FloatLot[] = [
+      ...[search.dmarket, search.whiteMarket, search.csfloat].flatMap((source) =>
+        source.listings.flatMap((listing) =>
+          listing.float !== null
+            ? [
+                {
+                  market: listing.market,
+                  price: listing.price,
+                  float: listing.float,
+                  url: listing.url,
+                },
+              ]
+            : [],
+        ),
+      ),
+      ...search.steam.listings.flatMap((listing) =>
+        listing.float !== null && listing.price !== null
+          ? [{ market: 'steam', price: listing.price, float: listing.float, url: listing.url }]
+          : [],
+      ),
+    ];
+    const deals = findFloatDeals(
+      lots,
+      search.orders,
+      input.feeDmarket ?? DEFAULT_DMARKET_FEE,
+      FLOAT_PICKS,
+    );
+    const csfloatPausedUntil = this.csfloat.quota().pausedUntil;
+    const picks = deals.map((deal) => ({
+      market: deal.market,
+      price: deal.price,
+      float: deal.float,
+      url: deal.url,
+      worseCheapest: deal.worseCheapest,
+      saving: deal.saving,
+      orderPrice: deal.orderPrice,
+      orderProfit: deal.orderProfit,
+      reason: '',
+    }));
+    const credentials =
+      picks.length > 0 ? await this.assistant.credentials(userId).catch(() => null) : null;
+
+    if (!credentials) {
+      return { picks, summary: null, checked: lots.length, csfloatPausedUntil };
+    }
+
+    const answer = await this.client.ask(credentials, {
+      system: FLOAT_SYSTEM,
+      prompt: JSON.stringify({
+        item: input.name,
+        listings: picks.map((pick, index) => ({
+          index,
+          market: pick.market,
+          float: pick.float,
+          priceUsd: pick.price / 100,
+          cheapestWorseFloatUsd: pick.worseCheapest === null ? null : pick.worseCheapest / 100,
+          savingUsd: pick.saving / 100,
+          buyOrderUsd: pick.orderPrice === null ? null : pick.orderPrice / 100,
+          buyOrderProfitUsd: pick.orderProfit === null ? null : pick.orderProfit / 100,
+        })),
+      }),
+    });
+    const parsed =
+      extractJson<{ reasons?: Record<string, unknown>; summary?: unknown }>(answer.text) ?? {};
+
+    return {
+      picks: picks.map((pick, index) => {
+        const reason = parsed.reasons?.[String(index)];
+
+        return { ...pick, reason: typeof reason === 'string' ? reason.trim() : '' };
+      }),
+      summary:
+        typeof parsed.summary === 'string' && parsed.summary.trim() ? parsed.summary.trim() : null,
+      checked: lots.length,
+      csfloatPausedUntil,
+    };
+  }
+
+  private async rankBlue(
+    input: BluePicksInputDto,
+  ): Promise<{ picks: BluePickDto[]; checked: number }> {
+    const search = await this.blueGems.search({ weapon: input.weapon, wear: input.wear });
+    const seen = new Set<string>();
+    const candidates = search.listings
+      .filter((listing) => listing.price !== null && listing.price > 0)
+      .filter(
+        (listing) =>
+          listing.floorPrice === null || listing.price! <= listing.floorPrice * FLOOR_MULTIPLE,
+      )
+      .filter((listing) => {
+        const key = `${listing.name}|${listing.paintSeed}`;
+
+        if (seen.has(key)) return false;
+
+        seen.add(key);
+        return true;
+      })
+      .slice(0, BLUE_CANDIDATES);
+    const valued: BluePickDto[] = [];
+
+    for (const listing of candidates) {
+      const value = await this.blueValues.value(listing.name, listing.paintSeed).catch(() => null);
+
+      if (!value || value.estimate === null || value.multiplier === null) continue;
+
+      valued.push({
+        market: listing.market,
+        id: listing.id,
+        name: listing.name,
+        price: listing.price!,
+        float: listing.float,
+        paintSeed: listing.paintSeed,
+        blue: value.blue,
+        url: listing.url,
+        estimate: value.estimate,
+        margin: value.estimate - listing.price!,
+        multiplier: value.multiplier,
+        comparableCount: value.comparableCount,
+        source: value.source,
+        reason: '',
+      });
+    }
+
+    const picks = valued
+      .filter((pick) => pick.margin > 0)
+      .sort((left, right) => right.margin - left.margin)
+      .slice(0, BLUE_PICKS);
+
+    return { picks, checked: candidates.length };
+  }
+
+  private searchRows(): SearchRow[] {
+    return this.index.all().map((item) => {
+      const quotes = [item.whiteMarket, item.dmarket, item.csfloat].filter(
+        (quote) => quote && quote.listings > 0 && quote.price !== null,
+      );
+
+      return {
+        name: item.name,
+        searchName: item.searchName,
+        category: item.category,
+        phase: item.phase,
+        price: quotes.length > 0 ? Math.min(...quotes.map((quote) => quote!.price!)) : null,
+        listings: quotes.reduce((sum, quote) => sum + quote!.listings, 0),
+      };
+    });
   }
 
   private resolveName(name: string | null): string | null {

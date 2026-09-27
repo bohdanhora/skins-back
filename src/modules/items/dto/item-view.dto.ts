@@ -131,6 +131,14 @@ export class ItemViewDto {
 
   @ApiProperty({ nullable: true, description: 'When the cheapest price last changed, ISO time' })
   priceChangedAt!: string | null;
+
+  @ApiPropertyOptional({
+    description: 'When each market price was last checked, only when a single item is asked for',
+  })
+  checkedAt?: { whiteMarket: string | null; dmarket: string | null; csfloat: string | null };
+
+  @ApiPropertyOptional({ nullable: true, description: 'CSFloat answers again after this time' })
+  csfloatPausedUntil?: string | null;
 }
 
 export class SalesDayDto {

@@ -26,6 +26,12 @@ import { ItemsService } from './items.service';
     BlueValueService,
     PatternImagesService,
   ],
-  exports: [ItemIndexService, ListingsService],
+  exports: [
+    ItemIndexService,
+    ListingsService,
+    BlueGemService,
+    BlueValueService,
+    FloatSearchService,
+  ],
 })
 export class ItemsModule {}

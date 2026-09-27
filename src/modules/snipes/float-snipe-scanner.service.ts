@@ -34,7 +34,7 @@ const IDLE_PAUSE_MS = 60_000;
 const WARMUP_PAUSE_MS = 5_000;
 const ERROR_PAUSE_MS = 5_000;
 const SAVE_EVERY = 100;
-const CSFLOAT_SCAN_INTERVAL_MS = 20_000;
+const CSFLOAT_SCAN_INTERVAL_MS = 3 * 60_000;
 const CSFLOAT_BACKOFF_MS = 5 * 60_000;
 
 export interface ItemSnipes {

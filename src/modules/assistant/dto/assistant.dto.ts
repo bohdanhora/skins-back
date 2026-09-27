@@ -1,5 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsNotEmpty, IsOptional, IsString, IsUrl, Matches, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsIn,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUrl,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 import { ASSISTANT_PROVIDERS } from '../../../domain/assistant-providers';
 
@@ -167,4 +179,147 @@ export class SmartSearchDto {
 
   @ApiPropertyOptional({ description: 'What the filters could not express' })
   note?: string;
+
+  @ApiPropertyOptional({
+    description: 'Items the model picked from real listings, each with a short reason',
+  })
+  picks?: { name: string; reason: string; price: number | null }[];
+}
+
+export class BluePicksInputDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(60)
+  weapon!: string;
+
+  @ApiPropertyOptional({ enum: ['FN', 'MW', 'FT', 'WW', 'BS'] })
+  @IsOptional()
+  @IsIn(['FN', 'MW', 'FT', 'WW', 'BS'])
+  wear?: 'FN' | 'MW' | 'FT' | 'WW' | 'BS';
+}
+
+export class BluePickDto {
+  market!: string;
+  id!: string;
+  name!: string;
+
+  @ApiProperty({ description: 'Cents' })
+  price!: number;
+
+  @ApiProperty({ type: Number, nullable: true })
+  float!: number | null;
+
+  paintSeed!: number;
+  blue!: { playside: number; backside: number };
+  url!: string;
+
+  @ApiProperty({ description: 'What similar blue sold for, cents' })
+  estimate!: number;
+
+  @ApiProperty({ description: 'Estimate minus price, cents' })
+  margin!: number;
+
+  multiplier!: number;
+  comparableCount!: number;
+
+  @ApiProperty({ enum: ['csfloat', 'calculator'] })
+  source!: 'csfloat' | 'calculator';
+
+  @ApiProperty({ description: 'Explanation from the model, empty without an assistant' })
+  reason!: string;
+}
+
+export class BluePicksDto {
+  @ApiProperty({ type: [BluePickDto] })
+  picks!: BluePickDto[];
+
+  @ApiProperty({ type: String, nullable: true })
+  summary!: string | null;
+
+  checked!: number;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'CSFloat sales were unavailable until then',
+  })
+  csfloatPausedUntil!: string | null;
+}
+
+export class FloatPicksInputDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  name!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  floatFrom?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  floatTo?: number;
+
+  @ApiPropertyOptional({ description: 'DMarket seller fee, %' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  feeDmarket?: number;
+}
+
+export class FloatPickDto {
+  market!: string;
+
+  @ApiProperty({ description: 'Cents' })
+  price!: number;
+
+  float!: number;
+  url!: string;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: 'Cheapest listing with a worse float',
+  })
+  worseCheapest!: number | null;
+
+  @ApiProperty({ description: 'How much cheaper than those worse floats, cents' })
+  saving!: number;
+
+  @ApiProperty({
+    type: Number,
+    nullable: true,
+    description: 'Best DMarket buy order covering this float',
+  })
+  orderPrice!: number | null;
+
+  @ApiProperty({ type: Number, nullable: true, description: 'Profit from selling into that order' })
+  orderProfit!: number | null;
+
+  reason!: string;
+}
+
+export class FloatPicksDto {
+  @ApiProperty({ type: [FloatPickDto] })
+  picks!: FloatPickDto[];
+
+  @ApiProperty({ type: String, nullable: true })
+  summary!: string | null;
+
+  checked!: number;
+
+  @ApiProperty({ type: String, nullable: true })
+  csfloatPausedUntil!: string | null;
 }

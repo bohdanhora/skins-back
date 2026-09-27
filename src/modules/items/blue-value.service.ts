@@ -16,7 +16,7 @@ import { PriceBoardService } from '../prices/price-board.service';
 import type { BlueValueDto } from './dto/blue-value.dto';
 
 const BLUES_KEY = 'csfloat-blue';
-const SALES_TTL_MS = 60 * 60_000;
+const SALES_TTL_MS = 6 * 60 * 60_000;
 const LOOKUP_TTL_MS = 60 * 60_000;
 const CASE_HARDENED_PAINT_INDEX = 44;
 const SHOWN_SALES = 8;

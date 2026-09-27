@@ -56,7 +56,20 @@ export class ItemsService {
       throw new NotFoundException('Item is not sold on any market right now');
     }
 
-    return toView(item, feesFrom(fees), this.sales.get(name));
+    const checked = this.board.checkedTimes(name);
+    const state = this.board.state;
+    const iso = (time: number | undefined, fallback: string | null) =>
+      time ? new Date(time).toISOString() : fallback;
+
+    return {
+      ...toView(item, feesFrom(fees), this.sales.get(name)),
+      checkedAt: {
+        whiteMarket: state.whiteMarket.updatedAt,
+        dmarket: iso(checked.dmarket, state.dmarket.updatedAt),
+        csfloat: iso(checked.csfloat, state.csfloat.updatedAt),
+      },
+      csfloatPausedUntil: this.csfloat.quota().pausedUntil,
+    };
   }
 
   async salesChart(name: string): Promise<SalesChartDto> {

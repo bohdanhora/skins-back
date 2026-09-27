@@ -25,6 +25,7 @@ import {
 } from '../white-market/white-market-export.client';
 
 const CACHE_KEY = 'prices';
+const CSFLOAT_PHASES_EVERY_MS = 2 * 60 * 60_000;
 const RETRY_AFTER_FAILURE_MS = 60_000;
 const CSFLOAT_PHASE_PAUSE_MS = 1_500;
 const DEPTH_TTL_MS = 6 * 60 * 60_000;
@@ -75,6 +76,8 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   private lisSkinsState: MarketSyncState = { updatedAt: null, items: 0, error: null };
   private refreshing: Promise<void> | null = null;
   private csfloatPhasesRunning = false;
+  private csfloatPhasesAt = 0;
+  private readonly checkedAt = new Map<string, Partial<Record<'dmarket' | 'csfloat', number>>>();
   private dmarketPulledAt = 0;
   private priceSeen = new Map<string, { price: number; since: number }>();
   private readonly drops = new Set<string>();
@@ -177,7 +180,7 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
 
   async refreshItem(name: string): Promise<PricedItem | undefined> {
     const { marketHashName, phase } = parseVariantName(name);
-    const [fresh, csfloatListings] = await Promise.all([
+    const [fresh, csfloatListings] = await Promise.allSettled([
       hasDopplerPhases(marketHashName)
         ? this.refreshPhases([marketHashName], 'interactive').then(
             () => new Map<string, DmarketPrice>(),
@@ -185,25 +188,41 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
         : this.dmarketPrices.fetchPrices([marketHashName]),
       this.csfloatClient.isEnabled
         ? this.csfloatClient.searchListings({ name: marketHashName, phase })
-        : Promise.resolve([]),
+        : Promise.reject(new Error('CSFloat is off')),
     ]);
-    const price = fresh.get(marketHashName);
+    const checked = { ...this.checkedAt.get(name) };
 
-    if (price) {
-      this.dmarket.set(marketHashName, price);
-      this.rebuild();
+    if (fresh.status === 'fulfilled') {
+      const price = fresh.value.get(marketHashName);
+
+      if (price) this.dmarket.set(marketHashName, price);
+      checked.dmarket = Date.now();
     }
 
-    if (csfloatListings.length > 0) {
-      this.csfloat.set(name, {
-        price: csfloatListings[0].price,
-        listings: csfloatListings.length,
-        url: csfloatListings[0].url,
-      });
-      this.rebuild();
+    if (csfloatListings.status === 'fulfilled') {
+      const [cheapest] = csfloatListings.value;
+
+      if (cheapest) {
+        this.csfloat.set(name, {
+          price: cheapest.price,
+          listings: csfloatListings.value.length,
+          url: cheapest.url,
+        });
+      } else {
+        this.csfloat.delete(name);
+      }
+
+      checked.csfloat = Date.now();
     }
+
+    this.checkedAt.set(name, checked);
+    this.rebuild();
 
     return this.find(name);
+  }
+
+  checkedTimes(name: string): Partial<Record<'dmarket' | 'csfloat', number>> {
+    return this.checkedAt.get(name) ?? {};
   }
 
   refresh(): Promise<void> {
@@ -418,11 +437,16 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   }
 
   private async refreshCsfloatPhases(): Promise<void> {
-    if (!this.csfloatClient.isEnabled || this.csfloatPhasesRunning) {
+    if (
+      !this.csfloatClient.isEnabled ||
+      this.csfloatPhasesRunning ||
+      Date.now() - this.csfloatPhasesAt < CSFLOAT_PHASES_EVERY_MS
+    ) {
       return;
     }
 
     this.csfloatPhasesRunning = true;
+    this.csfloatPhasesAt = Date.now();
     const titles = [...this.csfloat.keys()].filter(
       (name) => !parseVariantName(name).phase && hasDopplerPhases(name),
     );

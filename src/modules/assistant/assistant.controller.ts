@@ -23,6 +23,10 @@ import {
   AssistantProviderDto,
   AssistantSettingsDto,
   AssistantSettingsInputDto,
+  BluePicksDto,
+  BluePicksInputDto,
+  FloatPicksDto,
+  FloatPicksInputDto,
   MatchBriefDto,
   PurchaseDraftDto,
   PurchaseDraftInputDto,
@@ -112,6 +116,36 @@ export class AssistantController {
     @Body() body: PurchaseDraftInputDto,
   ): Promise<PurchaseDraftDto> {
     return this.tasks.draft(user.id, body);
+  }
+
+  @Post('blue-picks')
+  @Throttle(TASK_LIMIT)
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Bluest Case Hardened listings ranked by how far below similar sales they sit',
+  })
+  @ApiOkResponse({ type: BluePicksDto })
+  bluePicks(
+    @CurrentUser() user: UserEntity,
+    @Body() body: BluePicksInputDto,
+  ): Promise<BluePicksDto> {
+    return this.tasks.bluePicks(user.id, body);
+  }
+
+  @Post('float-picks')
+  @Throttle(TASK_LIMIT)
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Listings priced like worse floats, or that a buy order already pays more for',
+  })
+  @ApiOkResponse({ type: FloatPicksDto })
+  floatPicks(
+    @CurrentUser() user: UserEntity,
+    @Body() body: FloatPicksInputDto,
+  ): Promise<FloatPicksDto> {
+    return this.tasks.floatPicks(user.id, body);
   }
 
   @Post('search')

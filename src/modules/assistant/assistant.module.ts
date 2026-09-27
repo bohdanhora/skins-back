@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { BettingModule } from '../betting/betting.module';
 import { CsfloatModule } from '../csfloat/csfloat.module';
+import { ItemsModule } from '../items/items.module';
 import { PricesModule } from '../prices/prices.module';
 import { AssistantProviderEntity } from './assistant-provider.entity';
 import { AssistantTasksService } from './assistant-tasks.service';
@@ -17,6 +18,7 @@ import { ModelClientService } from './model-client.service';
     AuthModule,
     BettingModule,
     CsfloatModule,
+    ItemsModule,
     PricesModule,
   ],
   controllers: [AssistantController],
