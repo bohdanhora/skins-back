@@ -4,12 +4,14 @@ import { fetchJson } from '../../common/http/fetch-json';
 import { whiteMarketConfig, type WhiteMarketConfig } from '../../config/app.config';
 import {
   dollarsToCents,
+  placeFromPreview,
   toStickerItemName,
   toStickerNumber,
   toStickerWear,
   withoutStickerPrefix,
   type Listing,
 } from '../../domain/listing';
+import { readPreview } from '../../domain/inspect-gen';
 import { MarketId, whiteMarketItemUrl, whiteMarketListingUrl } from '../../domain/market-links';
 import { type MarketPhase } from '../../domain/market-variant';
 
@@ -32,6 +34,7 @@ query Listings($search: MarketProductSearchInput, $first: Int, $after: String) {
           ... on CSGOInventoryItem {
             float
             paintSeed
+            link
             nameHash
             stickers { name title icon wear offsetX offsetY }
             description { ... on CSGOSteamItem { icon } }
@@ -62,6 +65,7 @@ interface RawProduct {
   item: {
     float?: string | null;
     paintSeed?: string | null;
+    link?: string | null;
     nameHash?: string | null;
     stickers?:
       | ({
@@ -208,17 +212,21 @@ export class WhiteMarketPartnerClient {
       price: dollarsToCents(node.price.value),
       float: node.item?.float ?? null,
       paintSeed: toSeed(node.item?.paintSeed),
-      stickers: (node.item?.stickers ?? [])
-        .filter((sticker) => sticker !== null)
-        .map((sticker) => ({
-          name: toStickerItemName(sticker.title || sticker.name),
-          image: sticker.icon,
-          slot: null,
-          wear: toStickerWear(sticker.wear),
-          offsetX: toStickerNumber(sticker.offsetX),
-          offsetY: toStickerNumber(sticker.offsetY),
-          rotation: null,
-        })),
+      stickers: placeFromPreview(
+        (node.item?.stickers ?? [])
+          .filter((sticker) => sticker !== null)
+          .map((sticker) => ({
+            name: toStickerItemName(sticker.title || sticker.name),
+            image: sticker.icon,
+            slot: null,
+            wear: toStickerWear(sticker.wear),
+            offsetX: toStickerNumber(sticker.offsetX),
+            offsetY: toStickerNumber(sticker.offsetY),
+            rotation: null,
+            scale: null,
+          })),
+        readPreview(node.item?.link),
+      ),
       url: node.slug ? whiteMarketListingUrl(node.slug) : whiteMarketItemUrl(name),
     };
   }

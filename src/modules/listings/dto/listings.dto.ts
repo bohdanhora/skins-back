@@ -43,6 +43,9 @@ export class ListingStickerDto {
   @ApiProperty({ nullable: true, description: 'Degrees' })
   rotation!: number | null;
 
+  @ApiProperty({ nullable: true })
+  scale!: number | null;
+
   @ApiProperty({ nullable: true, description: 'Cheapest price of this sticker on its own, cents' })
   price!: number | null;
 
@@ -65,6 +68,9 @@ export class ListingViewDto {
 
   @ApiProperty({ nullable: true })
   float!: string | null;
+
+  @ApiProperty({ nullable: true })
+  paintSeed!: number | null;
 
   @ApiProperty({ type: [ListingStickerDto] })
   stickers!: ListingStickerDto[];

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 
 import {
   genCommand,
+  genKeepsPlacement,
   itemQuality,
   PREVIEW_COMMAND,
   PREVIEW_LINK,
@@ -81,6 +82,7 @@ export class InspectGenService {
           slot,
           stickerId,
           wear: place?.wear ?? 0,
+          ...(typeof place?.scale === 'number' ? { scale: place.scale } : {}),
           ...(typeof place?.rotation === 'number' ? { rotation: place.rotation } : {}),
           ...(typeof place?.offsetX === 'number' ? { offsetX: place.offsetX } : {}),
           ...(typeof place?.offsetY === 'number' ? { offsetY: place.offsetY } : {}),
@@ -107,6 +109,7 @@ export class InspectGenService {
       link: `${PREVIEW_LINK}${hex}`,
       server: `!i ${PREVIEW_LINK}${hex}`,
       gen: genCommand(item),
+      genExact: genKeepsPlacement(item),
       missingStickers,
     };
   }

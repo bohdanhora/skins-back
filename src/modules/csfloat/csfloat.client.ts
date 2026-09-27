@@ -3,8 +3,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { UpstreamError } from '../../common/http/fetch-json';
 import { RateGate, type RateSnapshot } from '../../domain/rate-gate';
 import { csfloatConfig, type CsfloatConfig } from '../../config/app.config';
+import { readPreview } from '../../domain/inspect-gen';
 import {
   bySlot,
+  placeFromPreview,
   type Listing,
   toStickerItemName,
   toStickerNumber,
@@ -40,12 +42,16 @@ export interface RawCsfloatListing {
     paint_seed: number;
     paint_index: number;
     icon_url?: string;
+    serialized_inspect?: string;
+    inspect_link?: string;
     stickers?: {
+      stickerId?: number;
       name: string;
       icon_url?: string;
       slot?: number;
       wear?: number;
       rotation?: number;
+      scale?: number;
       offset_x?: number;
       offset_y?: number;
     }[];
@@ -298,17 +304,26 @@ export class CsfloatClient {
         image: imageUrl(row.item.icon_url),
         price: row.price,
         float: Number.isFinite(row.item.float_value) ? String(row.item.float_value) : null,
-        stickers: (row.item.stickers ?? [])
-          .map((sticker) => ({
-            name: toStickerItemName(sticker.name),
-            image: imageUrl(sticker.icon_url),
-            slot: Number.isInteger(sticker.slot) ? sticker.slot! : null,
-            wear: toStickerWear(sticker.wear),
-            offsetX: toStickerNumber(sticker.offset_x),
-            offsetY: toStickerNumber(sticker.offset_y),
-            rotation: toStickerNumber(sticker.rotation),
-          }))
-          .sort(bySlot),
+        paintSeed: Number.isInteger(row.item.paint_seed) ? row.item.paint_seed : null,
+        stickers: placeFromPreview(
+          (row.item.stickers ?? [])
+            .map((sticker) => ({
+              name: toStickerItemName(sticker.name),
+              image: imageUrl(sticker.icon_url),
+              slot: Number.isInteger(sticker.slot) ? sticker.slot! : null,
+              wear: toStickerWear(sticker.wear),
+              offsetX: toStickerNumber(sticker.offset_x),
+              offsetY: toStickerNumber(sticker.offset_y),
+              rotation: toStickerNumber(sticker.rotation),
+              scale: toStickerNumber(sticker.scale),
+            }))
+            .sort(bySlot),
+          readPreview(row.item.serialized_inspect ?? row.item.inspect_link),
+          (row.item.stickers ?? [])
+            .slice()
+            .sort((left, right) => (left.slot ?? 0) - (right.slot ?? 0))
+            .map((sticker) => sticker.stickerId ?? null),
+        ),
         url: `https://csfloat.com/item/${encodeURIComponent(row.id)}`,
       }));
   }

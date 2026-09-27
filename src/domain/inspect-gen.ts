@@ -10,6 +10,11 @@ export interface PreviewSticker {
   offsetY?: number;
 }
 
+export interface PreviewData {
+  paintseed: number | null;
+  stickers: PreviewSticker[];
+}
+
 export interface PreviewItem {
   defindex: number;
   paintindex: number;
@@ -124,12 +129,127 @@ export const previewHex = (item: PreviewItem): string => {
   return Buffer.concat([payload, checksum]).toString('hex').toUpperCase();
 };
 
+export const genKeepsPlacement = (item: PreviewItem): boolean =>
+  (item.stickers ?? []).every(
+    (sticker) =>
+      sticker.slot < MAX_STICKERS &&
+      sticker.offsetX === undefined &&
+      sticker.offsetY === undefined &&
+      sticker.rotation === undefined &&
+      sticker.scale === undefined,
+  );
+
 export const genCommand = (item: PreviewItem): string => {
+  const stickers = [...(item.stickers ?? [])].sort((left, right) => left.slot - right.slot);
+  const positional = stickers.every((sticker) => sticker.slot < MAX_STICKERS);
   const slots = Array.from({ length: MAX_STICKERS }, (_, slot) => {
-    const sticker = item.stickers?.find((entry) => entry.slot === slot);
+    const sticker = positional ? stickers.find((entry) => entry.slot === slot) : stickers[slot];
 
     return sticker ? `${sticker.stickerId} ${sticker.wear ?? 0}` : '0 0';
   });
 
   return `!gen ${item.defindex} ${item.paintindex} ${item.paintseed} ${item.paintwear} ${slots.join(' ')}`;
+};
+
+const PREVIEW_HEX = /csgo_econ_action_preview(?:%20|\s+)([0-9A-F]+)/i;
+const STICKER_FIELDS: Partial<Record<number, keyof PreviewSticker>> = {
+  3: 'wear',
+  4: 'scale',
+  5: 'rotation',
+  7: 'offsetX',
+  8: 'offsetY',
+};
+
+type Field = [field: number, value: number | Buffer];
+
+const readFields = (bytes: Buffer): Field[] | null => {
+  const fields: Field[] = [];
+  let at = 0;
+
+  const readVarint = (): number | null => {
+    let value = 0;
+    let shift = 0;
+
+    while (at < bytes.length) {
+      const byte = bytes[at++];
+
+      value += (byte & 0x7f) * 2 ** shift;
+      shift += 7;
+
+      if ((byte & 0x80) === 0) return value;
+    }
+
+    return null;
+  };
+
+  while (at < bytes.length) {
+    const key = readVarint();
+
+    if (key === null) return null;
+
+    const field = Math.floor(key / 8);
+    const wire = key % 8;
+
+    if (wire === 0) {
+      const value = readVarint();
+
+      if (value === null) return null;
+      fields.push([field, value]);
+    } else if (wire === 5) {
+      if (at + 4 > bytes.length) return null;
+      fields.push([field, bytes.readFloatLE(at)]);
+      at += 4;
+    } else if (wire === 2) {
+      const length = readVarint();
+
+      if (length === null || at + length > bytes.length) return null;
+      fields.push([field, bytes.subarray(at, at + length)]);
+      at += length;
+    } else {
+      return null;
+    }
+  }
+
+  return fields;
+};
+
+const readSticker = (bytes: Buffer): PreviewSticker | null => {
+  const fields = readFields(bytes);
+
+  if (!fields) return null;
+
+  const sticker: PreviewSticker = { slot: 0, stickerId: 0 };
+
+  for (const [field, value] of fields) {
+    if (typeof value !== 'number') continue;
+    if (field === 1) sticker.slot = value;
+    if (field === 2) sticker.stickerId = value;
+
+    const name = STICKER_FIELDS[field];
+
+    if (name) Object.assign(sticker, { [name]: value });
+  }
+
+  return sticker.stickerId > 0 ? sticker : null;
+};
+
+export const readPreview = (link: string | null | undefined): PreviewData | null => {
+  const hex = link ? PREVIEW_HEX.exec(link)?.[1] : undefined;
+
+  if (!hex || hex.length % 2 !== 0 || hex.length < 12) return null;
+
+  const raw = Buffer.from(hex, 'hex');
+  const bytes = raw[0] === 0 ? raw : Buffer.from(raw.map((byte) => byte ^ raw[0]));
+  const fields = readFields(bytes.subarray(1, bytes.length - 4));
+
+  if (!fields) return null;
+
+  const seed = fields.find(([field, value]) => field === 8 && typeof value === 'number');
+  const stickers = fields.flatMap(([field, value]) => {
+    const sticker = field === 12 && typeof value !== 'number' ? readSticker(value) : null;
+
+    return sticker ? [sticker] : [];
+  });
+
+  return { paintseed: seed ? (seed[1] as number) : null, stickers };
 };

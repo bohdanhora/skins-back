@@ -2,8 +2,9 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { fetchJson } from '../../common/http/fetch-json';
 import { dmarketConfig, type DmarketConfig } from '../../config/app.config';
+import { readPreview } from '../../domain/inspect-gen';
 import {
-  bySlot,
+  placeFromPreview,
   toStickerItemName,
   toStickerNumber,
   toStickerWear,
@@ -27,7 +28,10 @@ interface RawOffer {
     imageUri: string;
     cs2?: {
       float?: string;
+      paintSeed?: number;
+      inspectInGameUri?: string;
       stickers?: {
+        id?: number;
         name: string;
         image: string;
         slot?: number;
@@ -129,17 +133,21 @@ export class DmarketTradingClient {
       image: imageUri || null,
       price: Number(offer.priceCents),
       float: cs2?.float ?? null,
-      stickers: (cs2?.stickers ?? [])
-        .map((sticker) => ({
+      paintSeed: Number.isInteger(cs2?.paintSeed) ? cs2!.paintSeed! : null,
+      stickers: placeFromPreview(
+        (cs2?.stickers ?? []).map((sticker) => ({
           name: toStickerItemName(sticker.name),
           image: sticker.image || null,
-          slot: Number.isInteger(sticker.slot) ? sticker.slot! : null,
+          slot: null,
           wear: toStickerWear(sticker.wear),
           offsetX: toStickerNumber(sticker.offsetX),
           offsetY: toStickerNumber(sticker.offsetY),
           rotation: toStickerNumber(sticker.rotation),
-        }))
-        .sort(bySlot),
+          scale: null,
+        })),
+        readPreview(cs2?.inspectInGameUri),
+        (cs2?.stickers ?? []).map((sticker) => sticker.id ?? null),
+      ),
       url: dmarketListingUrl(title, cs2?.float ?? null),
     };
   }

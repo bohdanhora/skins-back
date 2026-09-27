@@ -18,7 +18,7 @@ export class StickerLayoutDto {
   @IsOptional()
   @IsInt()
   @Min(0)
-  @Max(4)
+  @Max(31)
   slot?: number | null;
 
   @IsOptional()
@@ -44,6 +44,12 @@ export class StickerLayoutDto {
   @Min(-360)
   @Max(360)
   rotation?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(10)
+  scale?: number | null;
 }
 
 const parseLayout = ({ value }: { value: unknown }): unknown => {
@@ -94,7 +100,7 @@ export class InspectGenQueryDto {
   @ApiPropertyOptional({
     type: String,
     description:
-      'JSON array aligned with stickers: [{ slot, wear, offsetX, offsetY, rotation }], any field may be null',
+      'JSON array aligned with stickers: [{ slot, wear, offsetX, offsetY, rotation, scale }], any field may be null',
   })
   @IsOptional()
   @Transform(parseLayout)
@@ -120,6 +126,9 @@ export class InspectGenDto {
 
   @ApiProperty({ description: 'Classic !gen command' })
   gen!: string;
+
+  @ApiProperty({ description: 'False when !gen cannot keep the sticker slots or placement' })
+  genExact!: boolean;
 
   @ApiProperty({ description: 'Sticker names that were not found in the catalog' })
   missingStickers!: string[];
