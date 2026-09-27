@@ -1,6 +1,6 @@
 import { ItemCategory } from '../../domain/categories';
 import { type IndexedItem } from './item-index.service';
-import { buildItemLibrary } from './item-library';
+import { buildItemLibrary, showcaseImage } from './item-library';
 
 const item = (name: string, category: ItemCategory, price: number): IndexedItem => ({
   name,
@@ -60,5 +60,19 @@ describe('item library', () => {
       name: '★ Bayonet | Doppler (Factory New) [Sapphire]',
       phase: 'sapphire',
     });
+  });
+});
+
+describe('library showcase image', () => {
+  it('prefers the freshest plain version', () => {
+    const entry = (name: string) => ({ item: { name, image: `${name}.png` } });
+
+    expect(
+      showcaseImage([
+        entry('AK-47 | Redline (Battle-Scarred)'),
+        entry('StatTrak™ AK-47 | Redline (Factory New)'),
+        entry('AK-47 | Redline (Minimal Wear)'),
+      ]),
+    ).toBe('AK-47 | Redline (Minimal Wear).png');
   });
 });

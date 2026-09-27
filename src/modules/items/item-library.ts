@@ -41,6 +41,28 @@ const partsOf = (name: string): { weapon: string; skin: string } | null => {
   return { weapon: clean.slice(0, separator), skin: clean.slice(separator + 3) };
 };
 
+const WEAR_ORDER = [
+  '(Factory New)',
+  '(Minimal Wear)',
+  '(Field-Tested)',
+  '(Well-Worn)',
+  '(Battle-Scarred)',
+];
+const SPECIAL_EDITION = 10;
+
+const imageRank = (name: string): number => {
+  const wear = WEAR_ORDER.findIndex((suffix) => name.includes(suffix));
+  const special = name.includes('StatTrak™') || name.startsWith('Souvenir ') ? SPECIAL_EDITION : 0;
+
+  return (wear === -1 ? 0 : wear) + special;
+};
+
+export const showcaseImage = (entries: { item: { name: string; image: string | null } }[]) =>
+  entries
+    .filter((entry) => entry.item.image)
+    .sort((left, right) => imageRank(left.item.name) - imageRank(right.item.name))[0]?.item.image ??
+  null;
+
 const toRows = (items: readonly IndexedItem[]): LibraryRow[] =>
   items.flatMap((item) => {
     if (!LIBRARY_CATEGORIES.has(item.category) || isPhaseSummary(item)) return [];
@@ -65,7 +87,7 @@ const optionList = (
   return [...grouped]
     .map(([value, entries]) => ({
       value,
-      image: entries.find((entry) => entry.item.image)?.item.image ?? null,
+      image: showcaseImage(entries),
       count: new Set(entries.map((entry) => entry.item.name)).size,
       price: Math.min(...entries.map((entry) => entry.price ?? Infinity)),
     }))
