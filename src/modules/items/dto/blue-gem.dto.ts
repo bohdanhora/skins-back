@@ -51,6 +51,13 @@ export class BlueGemListingDto {
   blue!: BlueShareDto;
 
   @ApiProperty({
+    type: BlueShareDto,
+    nullable: true,
+    description: 'Playside and backside blue measured by CSFloat, when CSFloat lists this seed',
+  })
+  csfloatBlue!: BlueShareDto | null;
+
+  @ApiProperty({
     nullable: true,
     description: 'Cheapest listing of the same wear and quality on any market, cents',
   })

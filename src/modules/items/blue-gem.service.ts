@@ -6,6 +6,7 @@ import {
   bluestSeeds,
   caseHardenedWeapon,
   weaponBlueShare,
+  type BlueShare,
 } from '../../domain/blue-gem';
 import { MarketId, dmarketListingUrl } from '../../domain/market-links';
 import { CatalogService } from '../catalog/catalog.service';
@@ -38,7 +39,9 @@ const WEAR_NAMES: Record<BlueGemWear, string> = {
   BS: 'Battle-Scarred',
 };
 
-type RawListing = Omit<BlueGemListingDto, 'blue' | 'floorPrice'>;
+type RawListing = Omit<BlueGemListingDto, 'blue' | 'csfloatBlue' | 'floorPrice'> & {
+  csfloatBlue?: BlueShare | null;
+};
 
 interface SourceResult {
   status: SourceStatus;
@@ -58,7 +61,7 @@ const withBlue = (rows: RawListing[]): BlueGemListingDto[] =>
     const weapon = caseHardenedWeapon(row.name);
     const blue = weapon ? weaponBlueShare(weapon, row.paintSeed) : null;
 
-    return blue ? [{ ...row, blue, floorPrice: null }] : [];
+    return blue ? [{ ...row, blue, csfloatBlue: row.csfloatBlue ?? null, floorPrice: null }] : [];
   });
 
 @Injectable()
@@ -120,11 +123,20 @@ export class BlueGemService {
       ).values(),
     ];
     const floors = this.floorPrices(listings);
+    const csfloatBlues = new Map(
+      listings.flatMap((listing) =>
+        listing.csfloatBlue ? [[listing.paintSeed, listing.csfloatBlue] as const] : [],
+      ),
+    );
 
     return {
       weapon,
       listings: listings
-        .map((listing) => ({ ...listing, floorPrice: floors.get(listing.name) ?? null }))
+        .map((listing) => ({
+          ...listing,
+          csfloatBlue: csfloatBlues.get(listing.paintSeed) ?? null,
+          floorPrice: floors.get(listing.name) ?? null,
+        }))
         .sort(byBlue),
       sources: {
         dmarket: dmarket.status,
@@ -326,6 +338,7 @@ export class BlueGemService {
             priceLabel: null,
             float: listing.float,
             paintSeed: listing.paintSeed,
+            csfloatBlue: listing.blue,
             url: listing.url,
           }));
       }),
