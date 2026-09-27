@@ -9,20 +9,31 @@ import {
 import { DiskCache } from '../../common/cache/disk-cache';
 import { wait } from '../../common/http/fetch-json';
 import { appConfig, syncConfig, type AppConfig, type SyncConfig } from '../../config/app.config';
-import { cheapestPrice, type MarketQuote, type MarketQuotes } from '../../domain/comparison';
-import { csfloatItemUrl, dmarketItemUrl } from '../../domain/market-links';
+import {
+  cheapestPrice,
+  listedPrices,
+  type MarketQuote,
+  type MarketQuotes,
+} from '../../domain/comparison';
+import {
+  MarketId,
+  csfloatItemUrl,
+  dmarketItemUrl,
+  whiteMarketItemUrl,
+} from '../../domain/market-links';
 import { parseVariantName, variantName } from '../../domain/market-variant';
 import { hasDopplerPhases, summarizePhaseDepth, type PhaseQuote } from '../../domain/phase-prices';
 import { CatalogService } from '../catalog/catalog.service';
 import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
 import { type RequestPriority } from '../dmarket/dmarket-rate-limiter';
 import { DmarketPricesClient, type DmarketPrice } from '../dmarket/dmarket-prices.client';
-import { CsfloatClient, type CsfloatPrice } from '../csfloat/csfloat.client';
+import { CsfloatClient, CsfloatPausedError, type CsfloatPrice } from '../csfloat/csfloat.client';
 import { LisSkinsClient, type LisSkinsPrice } from '../lis-skins/lis-skins.client';
 import {
   WhiteMarketExportClient,
   type WhiteMarketPrice,
 } from '../white-market/white-market-export.client';
+import { WhiteMarketPartnerClient } from '../white-market/white-market-partner.client';
 
 const CACHE_KEY = 'prices';
 const CSFLOAT_PHASES_EVERY_MS = 2 * 60 * 60_000;
@@ -32,6 +43,23 @@ const DEPTH_TTL_MS = 6 * 60 * 60_000;
 const DEPTH_REBUILD_DELAY_MS = 30_000;
 const DROP_SHARE = 0.03;
 const MAX_QUEUED_DROPS = 2_000;
+const LIVE_HOLD_MS = 20 * 60_000;
+const CHECKS_PER_CALL = { phases: 4, whiteMarket: 10, csfloat: 4 };
+
+type CheckedMarket = 'dmarket' | 'whiteMarket' | 'csfloat';
+type LiveMarket = Exclude<CheckedMarket, 'dmarket'>;
+
+const CHECK_EVERY_MS: Record<CheckedMarket, number> = {
+  dmarket: 30_000,
+  whiteMarket: 60_000,
+  csfloat: 3 * 60_000,
+};
+
+interface LiveQuote {
+  quote: { price: number; listings: number; url: string | null } | null;
+  base: number | null;
+  at: number;
+}
 
 export interface PricedItem extends MarketQuotes {
   name: string;
@@ -77,7 +105,9 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   private refreshing: Promise<void> | null = null;
   private csfloatPhasesRunning = false;
   private csfloatPhasesAt = 0;
-  private readonly checkedAt = new Map<string, Partial<Record<'dmarket' | 'csfloat', number>>>();
+  private readonly checkedAt = new Map<string, Partial<Record<CheckedMarket, number>>>();
+  private readonly checking = new Set<string>();
+  private readonly live = new Map<string, Partial<Record<LiveMarket, LiveQuote>>>();
   private dmarketPulledAt = 0;
   private priceSeen = new Map<string, { price: number; since: number }>();
   private readonly drops = new Set<string>();
@@ -93,6 +123,7 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
     private readonly dmarketDepth: DmarketDepthClient,
     private readonly csfloatClient: CsfloatClient,
     private readonly lisSkinsClient: LisSkinsClient,
+    private readonly whiteMarketPartner: WhiteMarketPartnerClient,
   ) {
     this.cache = new DiskCache(app.cacheDir);
   }
@@ -179,50 +210,172 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
   }
 
   async refreshItem(name: string): Promise<PricedItem | undefined> {
-    const { marketHashName, phase } = parseVariantName(name);
-    const [fresh, csfloatListings] = await Promise.allSettled([
+    const { marketHashName } = parseVariantName(name);
+
+    await Promise.allSettled([
       hasDopplerPhases(marketHashName)
-        ? this.refreshPhases([marketHashName], 'interactive').then(
-            () => new Map<string, DmarketPrice>(),
-          )
-        : this.dmarketPrices.fetchPrices([marketHashName]),
-      this.csfloatClient.isEnabled
-        ? this.csfloatClient.searchListings({ name: marketHashName, phase })
-        : Promise.reject(new Error('CSFloat is off')),
+        ? this.refreshPhases([marketHashName], 'interactive')
+        : this.checkDmarket([marketHashName]),
+      this.checkCsfloat([name], false),
+      this.checkWhiteMarket([name]),
     ]);
-    const checked = { ...this.checkedAt.get(name) };
-
-    if (fresh.status === 'fulfilled') {
-      const price = fresh.value.get(marketHashName);
-
-      if (price) this.dmarket.set(marketHashName, price);
-      checked.dmarket = Date.now();
-    }
-
-    if (csfloatListings.status === 'fulfilled') {
-      const [cheapest] = csfloatListings.value;
-
-      if (cheapest) {
-        this.csfloat.set(name, {
-          price: cheapest.price,
-          listings: csfloatListings.value.length,
-          url: cheapest.url,
-        });
-      } else {
-        this.csfloat.delete(name);
-      }
-
-      checked.csfloat = Date.now();
-    }
-
-    this.checkedAt.set(name, checked);
     this.rebuild();
 
     return this.find(name);
   }
 
-  checkedTimes(name: string): Partial<Record<'dmarket' | 'csfloat', number>> {
+  async verify(names: string[]): Promise<string[]> {
+    const known = [...new Set(names)].filter((name) => this.byName.has(name));
+    const before = new Map(known.map((name) => [name, this.fingerprint(name)]));
+    const due = (name: string, market: CheckedMarket) =>
+      !this.checking.has(`${market}:${name}`) &&
+      Date.now() - (this.checkedAt.get(name)?.[market] ?? 0) >= CHECK_EVERY_MS[market];
+    const cheapestOn = (name: string) =>
+      listedPrices(this.byName.get(name) ?? {}).sort((left, right) => left[1] - right[1])[0]?.[0];
+    const titleOf = (name: string) => parseVariantName(name).marketHashName;
+
+    const dmarket = known.filter((name) => due(name, 'dmarket'));
+    const plain = dmarket.filter((name) => !hasDopplerPhases(titleOf(name)));
+    const phased = [
+      ...new Set(dmarket.filter((name) => hasDopplerPhases(titleOf(name))).map(titleOf)),
+    ].slice(0, CHECKS_PER_CALL.phases);
+    const whiteMarket = known
+      .filter((name) => cheapestOn(name) === MarketId.WhiteMarket && due(name, 'whiteMarket'))
+      .slice(0, CHECKS_PER_CALL.whiteMarket);
+    const csfloat = known
+      .filter((name) => cheapestOn(name) === MarketId.Csfloat && due(name, 'csfloat'))
+      .slice(0, CHECKS_PER_CALL.csfloat);
+    const taken = [
+      ...plain.map((name) => `dmarket:${name}`),
+      ...phased.map((title) => `dmarket:${title}`),
+      ...whiteMarket.map((name) => `whiteMarket:${name}`),
+      ...csfloat.map((name) => `csfloat:${name}`),
+    ];
+
+    if (taken.length === 0) return [];
+
+    taken.forEach((key) => this.checking.add(key));
+
+    try {
+      await Promise.allSettled([
+        this.checkDmarket(plain),
+        this.refreshPhases(phased, 'interactive'),
+        this.checkWhiteMarket(whiteMarket),
+        this.checkCsfloat(csfloat, true),
+      ]);
+    } finally {
+      taken.forEach((key) => this.checking.delete(key));
+    }
+
+    this.rebuild();
+
+    return known.filter((name) => this.fingerprint(name) !== before.get(name));
+  }
+
+  checkedTimes(name: string): Partial<Record<CheckedMarket, number>> {
     return this.checkedAt.get(name) ?? {};
+  }
+
+  private fingerprint(name: string): string {
+    const item = this.byName.get(name);
+
+    return item ? JSON.stringify(listedPrices(item)) : '';
+  }
+
+  private markChecked(name: string, market: CheckedMarket): void {
+    this.checkedAt.set(name, { ...this.checkedAt.get(name), [market]: Date.now() });
+  }
+
+  private async checkDmarket(names: string[]): Promise<void> {
+    if (names.length === 0) return;
+
+    const prices = await this.dmarketPrices.fetchPrices(names, 'interactive');
+
+    for (const name of names) {
+      const price = prices.get(name);
+
+      if (price) {
+        this.dmarket.set(name, price);
+        this.markChecked(name, 'dmarket');
+      }
+    }
+  }
+
+  private async checkWhiteMarket(names: string[]): Promise<void> {
+    if (!this.whiteMarketPartner.isEnabled) return;
+
+    for (const name of names) {
+      const { marketHashName, phase } = parseVariantName(name);
+
+      if (!phase && hasDopplerPhases(marketHashName)) continue;
+
+      try {
+        const [cheapest] = await this.whiteMarketPartner.searchListings({
+          name: marketHashName,
+          phase,
+          limit: 1,
+        });
+
+        this.setLive(
+          name,
+          'whiteMarket',
+          cheapest ? { price: cheapest.price, listings: 1, url: null } : null,
+        );
+        this.markChecked(name, 'whiteMarket');
+      } catch (error) {
+        this.logger.warn(`white.market check for "${name}" failed: ${String(error)}`);
+      }
+    }
+  }
+
+  private async checkCsfloat(names: string[], background: boolean): Promise<void> {
+    if (!this.csfloatClient.isEnabled) return;
+
+    for (const name of names) {
+      const { marketHashName, phase } = parseVariantName(name);
+
+      try {
+        const listings = await this.csfloatClient.searchListings(
+          { name: marketHashName, phase },
+          { background },
+        );
+        const [cheapest] = listings;
+
+        this.setLive(
+          name,
+          'csfloat',
+          cheapest ? { price: cheapest.price, listings: listings.length, url: cheapest.url } : null,
+        );
+        this.markChecked(name, 'csfloat');
+      } catch (error) {
+        if (error instanceof CsfloatPausedError) return;
+
+        this.logger.warn(`CSFloat check for "${name}" failed: ${String(error)}`);
+      }
+    }
+  }
+
+  private setLive(name: string, market: LiveMarket, quote: LiveQuote['quote']): void {
+    this.live.set(name, {
+      ...this.live.get(name),
+      [market]: { quote, base: this.exportPrice(name, market), at: Date.now() },
+    });
+  }
+
+  private exportPrice(name: string, market: LiveMarket): number | null {
+    const source = market === 'whiteMarket' ? this.whiteMarket : this.csfloat;
+
+    return source.get(name)?.price ?? null;
+  }
+
+  private liveQuote(name: string, market: LiveMarket): LiveQuote | undefined {
+    const entry = this.live.get(name)?.[market];
+
+    return entry &&
+      Date.now() - entry.at < LIVE_HOLD_MS &&
+      entry.base === this.exportPrice(name, market)
+      ? entry
+      : undefined;
   }
 
   refresh(): Promise<void> {
@@ -371,6 +524,19 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
 
   private toWhiteMarketQuote(name: string): MarketQuote | null {
     const price = this.whiteMarket.get(name);
+    const live = this.liveQuote(name, 'whiteMarket');
+
+    if (live) {
+      return live.quote
+        ? {
+            price: live.quote.price,
+            listings: Math.max(live.quote.listings, price?.listings ?? 0),
+            bid: null,
+            bids: 0,
+            url: price?.url ?? whiteMarketItemUrl(parseVariantName(name).marketHashName),
+          }
+        : null;
+    }
 
     return price
       ? { price: price.price, listings: price.listings, bid: null, bids: 0, url: price.url }
@@ -414,8 +580,10 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
 
   private toCsfloatQuote(name: string): MarketQuote | null {
     const variant = parseVariantName(name);
-
-    const price = this.csfloat.get(variant.phase ? name : variant.marketHashName);
+    const live = this.liveQuote(name, 'csfloat');
+    const price = live
+      ? (live.quote ?? undefined)
+      : this.csfloat.get(variant.phase ? name : variant.marketHashName);
 
     return price
       ? {
@@ -504,13 +672,16 @@ export class PriceBoardService implements OnApplicationBootstrap, OnModuleDestro
         for (const key of [...this.dmarketPhases.keys()]) {
           if (parseVariantName(key).marketHashName === title) {
             this.dmarketPhases.delete(key);
+            this.markChecked(key, 'dmarket');
           }
         }
 
         this.dmarketPhases.set(title, common);
+        this.markChecked(title, 'dmarket');
 
         for (const [phase, quote] of phases) {
           this.dmarketPhases.set(variantName(title, phase), quote);
+          this.markChecked(variantName(title, phase), 'dmarket');
         }
       } catch (error) {
         failed += 1;

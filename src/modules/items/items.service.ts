@@ -56,6 +56,10 @@ export class ItemsService {
     return { ...page, updatedAt: stamps.sort()[0] ?? null };
   }
 
+  check(names: string[]): Promise<string[]> {
+    return this.board.verify(names);
+  }
+
   async get(
     name: string,
     fees: Pick<ItemsQueryDto, 'feeWhiteMarket' | 'feeDmarket' | 'feeCsfloat'>,
@@ -76,7 +80,7 @@ export class ItemsService {
     return {
       ...toView(item, feesFrom(fees), this.sales.get(name), this.floors.get(name)),
       checkedAt: {
-        whiteMarket: state.whiteMarket.updatedAt,
+        whiteMarket: iso(checked.whiteMarket, state.whiteMarket.updatedAt),
         dmarket: iso(checked.dmarket, state.dmarket.updatedAt),
         csfloat: iso(checked.csfloat, state.csfloat.updatedAt),
       },

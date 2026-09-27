@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
@@ -29,6 +29,7 @@ import { ItemsService } from './items.service';
 import { InspectGenDto, InspectGenQueryDto } from './dto/inspect-gen.dto';
 import { InspectGenService } from './inspect-gen.service';
 import { BuyOrdersDto } from './dto/buy-orders.dto';
+import { LiveCheckDto, LiveCheckInputDto } from './dto/live-check.dto';
 
 class ItemNameQueryDto extends ItemsQueryDto {
   @IsString()
@@ -73,6 +74,14 @@ export class ItemsController {
   @ApiOkResponse({ type: ItemViewDto })
   one(@Query() query: ItemNameQueryDto): Promise<ItemViewDto> {
     return this.items.get(query.name, query);
+  }
+
+  @Post('check')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Re-read the prices of the items on screen from the markets' })
+  @ApiOkResponse({ type: LiveCheckDto })
+  async check(@Body() body: LiveCheckInputDto): Promise<LiveCheckDto> {
+    return { changed: await this.items.check(body.names), checkedAt: new Date().toISOString() };
   }
 
   @Get('sales')

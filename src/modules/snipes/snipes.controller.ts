@@ -1,9 +1,10 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { blueShare } from '../../domain/blue-gem';
 import { snipeProfit } from '../../domain/float-snipes';
 import { dmarketItemUrl, dmarketListingUrl } from '../../domain/market-links';
+import { LiveCheckDto, LiveCheckInputDto } from '../items/dto/live-check.dto';
 import { ItemIndexService } from '../items/item-index.service';
 import { PriceBoardService } from '../prices/price-board.service';
 import {
@@ -25,6 +26,14 @@ export class SnipesController {
     private readonly index: ItemIndexService,
     private readonly board: PriceBoardService,
   ) {}
+
+  @Post('check')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Look again at the lots behind the finds on screen' })
+  @ApiOkResponse({ type: LiveCheckDto })
+  async check(@Body() body: LiveCheckInputDto): Promise<LiveCheckDto> {
+    return { changed: await this.scanner.recheck(body.names), checkedAt: new Date().toISOString() };
+  }
 
   @Get()
   @ApiOperation({

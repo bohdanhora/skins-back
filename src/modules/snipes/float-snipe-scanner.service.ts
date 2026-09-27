@@ -21,6 +21,7 @@ import { DMARKET_FLOAT_PARTS } from '../../domain/float';
 import { summarizeDepth } from '../../domain/phase-prices';
 import { parseVariantName } from '../../domain/market-variant';
 import { DmarketDepthClient } from '../dmarket/dmarket-depth.client';
+import { type RequestPriority } from '../dmarket/dmarket-rate-limiter';
 import { CsfloatClient } from '../csfloat/csfloat.client';
 import { PriceBoardService, type PricedItem } from '../prices/price-board.service';
 import { WhiteMarketPartnerClient } from '../white-market/white-market-partner.client';
@@ -39,10 +40,14 @@ const CSFLOAT_SCAN_INTERVAL_MS = 3 * 60_000;
 const CSFLOAT_BACKOFF_MS = 5 * 60_000;
 const CSFLOAT_ORDERS_INTERVAL_MS = 60_000;
 const CSFLOAT_ORDERS_TTL_MS = 30 * 60_000;
+const CSFLOAT_CARRY_MS = 30 * 60_000;
+const RECHECK_EVERY_MS = 90_000;
+const RECHECKS_PER_CALL = 4;
 
 export interface ItemSnipes {
   snipes: FloatSnipe[];
   checkedAt: number;
+  csfloatAt?: number;
 }
 
 export interface SnipeScanProgress {
@@ -73,6 +78,7 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
   private nextCsfloatScanAt = 0;
   private nextCsfloatOrdersAt = 0;
   private readonly csfloatOrderCache = new Map<string, { orders: DepthOrder[]; at: number }>();
+  private readonly rechecking = new Set<string>();
 
   constructor(
     @Inject(appConfig.KEY) app: AppConfig,
@@ -97,6 +103,41 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
       checked: names.filter((name) => (this.results.get(name)?.checkedAt ?? 0) > fresh).length,
       total: names.length,
     };
+  }
+
+  async recheck(names: string[]): Promise<string[]> {
+    const due = [...new Set(names)]
+      .filter((name) => {
+        const result = this.results.get(name);
+
+        return (
+          !!result &&
+          !this.rechecking.has(name) &&
+          Date.now() - result.checkedAt >= RECHECK_EVERY_MS
+        );
+      })
+      .slice(0, RECHECKS_PER_CALL);
+    const changed: string[] = [];
+
+    await Promise.all(
+      due.map(async (name) => {
+        const before = JSON.stringify(this.results.get(name)?.snipes ?? []);
+
+        this.rechecking.add(name);
+
+        try {
+          this.results.set(name, await this.scan(name, 'interactive'));
+        } catch (error) {
+          this.logger.warn(`Float recheck for "${name}" failed: ${String(error)}`);
+        } finally {
+          this.rechecking.delete(name);
+        }
+
+        if (JSON.stringify(this.results.get(name)?.snipes ?? []) !== before) changed.push(name);
+      }),
+    );
+
+    return changed;
   }
 
   async onApplicationBootstrap(): Promise<void> {
@@ -130,11 +171,15 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
       }
 
       try {
-        this.results.set(next, { snipes: await this.scan(next), checkedAt: Date.now() });
+        this.results.set(next, await this.scan(next, 'background'));
       } catch (error) {
         const previous = this.results.get(next);
 
-        this.results.set(next, { snipes: previous?.snipes ?? [], checkedAt: Date.now() });
+        this.results.set(next, {
+          ...previous,
+          snipes: previous?.snipes ?? [],
+          checkedAt: Date.now(),
+        });
         this.logger.warn(`Float scan for "${next}" failed: ${String(error)}`);
         await wait(ERROR_PAUSE_MS);
       }
@@ -147,8 +192,9 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     }
   }
 
-  private async scan(name: string): Promise<FloatSnipe[]> {
-    const depth = await this.depth.fetch(name, 'background');
+  private async scan(name: string, priority: RequestPriority): Promise<ItemSnipes> {
+    const previous = this.results.get(name);
+    const depth = await this.depth.fetch(name, priority);
     const { offers } = depth;
     const orders = liveOrders(offers, depth.orders);
 
@@ -158,9 +204,27 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     const known = [...orders, ...this.cachedCsfloatOrders(name)];
 
     candidates.push(...(await this.whiteMarketCandidates(name, known)));
-    candidates.push(...(await this.csfloatCandidates(name, known)));
 
-    return findSnipes(candidates, [...orders, ...(await this.csfloatOrders(name, candidates))]);
+    const urgent =
+      priority === 'interactive' && !!previous?.snipes.some((snipe) => snipe.source === 'csfloat');
+    const csfloat = await this.csfloatCandidates(name, known, urgent);
+
+    candidates.push(...(csfloat ?? []));
+
+    const snipes = findSnipes(candidates, [
+      ...orders,
+      ...(await this.csfloatOrders(name, candidates)),
+    ]);
+    const now = Date.now();
+
+    if (csfloat !== null) return { snipes, checkedAt: now, csfloatAt: now };
+
+    const carried =
+      previous?.csfloatAt !== undefined && now - previous.csfloatAt < CSFLOAT_CARRY_MS
+        ? previous.snipes.filter((snipe) => snipe.source === 'csfloat')
+        : [];
+
+    return { snipes: [...snipes, ...carried], checkedAt: now, csfloatAt: previous?.csfloatAt };
   }
 
   private cachedCsfloatOrders(name: string): DepthOrder[] {
@@ -201,14 +265,18 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
     }
   }
 
-  private async csfloatCandidates(name: string, orders: DepthOrder[]): Promise<SnipeCandidate[]> {
-    if (!this.csfloat.isEnabled || Date.now() < this.nextCsfloatScanAt) return [];
+  private async csfloatCandidates(
+    name: string,
+    orders: DepthOrder[],
+    urgent: boolean,
+  ): Promise<SnipeCandidate[] | null> {
+    if (!this.csfloat.isEnabled) return [];
 
     const bestOrder = Math.max(0, ...orders.map((order) => order.price));
 
     if (bestOrder <= (this.board.find(name)?.csfloat?.price ?? Infinity)) return [];
-
-    this.nextCsfloatScanAt = Date.now() + CSFLOAT_SCAN_INTERVAL_MS;
+    if (!urgent && Date.now() < this.nextCsfloatScanAt) return null;
+    if (!urgent) this.nextCsfloatScanAt = Date.now() + CSFLOAT_SCAN_INTERVAL_MS;
 
     try {
       const listings = await this.csfloat.searchListings({ name }, { background: true });
@@ -228,7 +296,7 @@ export class FloatSnipeScannerService implements OnApplicationBootstrap, OnModul
         this.nextCsfloatScanAt = Date.now() + CSFLOAT_BACKOFF_MS;
       }
       this.logger.warn(`CSFloat listings for "${name}" failed: ${String(error)}`);
-      return [];
+      return null;
     }
   }
 
