@@ -30,6 +30,7 @@ import { ItemsService } from './items.service';
   ],
   exports: [
     ItemIndexService,
+    ItemsService,
     ListingsService,
     BlueGemService,
     BlueValueService,

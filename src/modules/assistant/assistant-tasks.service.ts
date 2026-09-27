@@ -8,7 +8,10 @@ import {
 import { extractJson, oneOf, positiveNumber, textList } from '../../domain/assistant-providers';
 import { searchCandidates, type SearchRow } from '../../domain/assistant-search';
 import { findFloatDeals, type FloatLot } from '../../domain/float-deals';
-import { MARKET_PHASES } from '../../domain/market-variant';
+import { blueShare } from '../../domain/blue-gem';
+import { fadeShare } from '../../domain/fade';
+import { MARKET_PHASES, parseVariantName } from '../../domain/market-variant';
+import { median, similarFloatSales } from '../../domain/similar-sales';
 import { BettingService } from '../betting/betting.service';
 import type { MatchForecastDto, MarketOfferDto } from '../betting/dto/betting.dto';
 import { CatalogService } from '../catalog/catalog.service';
@@ -16,6 +19,8 @@ import { BlueGemService } from '../items/blue-gem.service';
 import { BlueValueService } from '../items/blue-value.service';
 import { FloatSearchService } from '../items/float-search.service';
 import { ItemIndexService } from '../items/item-index.service';
+import { ItemsService } from '../items/items.service';
+import { DEFAULT_FEE_PERCENT } from '../items/dto/items-query.dto';
 import { CsfloatClient, CsfloatPausedError } from '../csfloat/csfloat.client';
 import { PriceBoardService } from '../prices/price-board.service';
 import { SalesHistoryService } from '../prices/sales-history.service';
@@ -26,6 +31,9 @@ import type {
   BluePicksInputDto,
   FloatPicksDto,
   FloatPicksInputDto,
+  AnalyzedLotDto,
+  ItemAnalysisDto,
+  ItemAnalysisInputDto,
   MatchBriefDto,
   PurchaseDraftDto,
   PurchaseDraftInputDto,
@@ -70,6 +78,12 @@ const BLUE_PICKS_TTL_MS = 30 * 60_000;
 const FLOAT_PICKS = 5;
 const DEFAULT_DMARKET_FEE = 5;
 const MAX_PICKS = 12;
+const ANALYSIS_TTL_MS = 10 * 60_000;
+const ANALYSIS_VERDICTS = ['buy', 'consider', 'skip'] as const;
+const FLOAT_WINDOW = 0.02;
+const NEAR_LISTINGS = 6;
+const RECENT_SALES = 8;
+const DAY_MS = 86_400_000;
 
 const BRIEF_SYSTEM = `You are a careful CS2 esports betting analyst working inside a tool that already computed a map-by-map forecast.
 Rules:
@@ -115,6 +129,28 @@ For each listing write one short honest sentence in Russian: why it is worth a l
 Then one or two sentences of summary.
 Answer with a single JSON object and nothing else:
 {"reasons":{"<index>":"..."},"summary":"..."}`;
+
+const ANALYSIS_SYSTEM = `You judge one CS2 skin purchase for a trader who buys to resell or to hold value.
+Every number comes from the JSON you are given: the lot (price, float, pattern, fade or blue share, stickers), prices on every market, the discount against usual sales, liquidity, CSFloat sales of items with a similar float, listings with a similar float, buy orders that accept this float and the resale results after fees. Never invent or change numbers, never assume facts that are not in the JSON.
+How to judge:
+- The lot is good when it costs less than similar floats and patterns sell for, sells often, and can be resold after fees or covered by a buy order.
+- A float or pattern premium only counts if similar sales or buy orders show that buyers pay for it.
+- Few sales, a wide price spread, a falling trend, or a price above the cheapest similar listing lower the score.
+- If data is missing, say so and keep the score near the middle.
+Score 1-100 is the chance the purchase pays off: 80+ clear bargain, 60-79 good, 40-59 fair price with no edge, below 40 overpaid or risky.
+Write in Russian, short and concrete, with numbers from the JSON in dollars.
+Answer with a single JSON object and nothing else:
+{"score":55,"verdict":"buy|consider|skip","summary":"2-3 sentences","pros":["..."],"cons":["..."]}
+At most 4 pros and 4 cons, each under 15 words.`;
+
+const usd = (cents: number | null | undefined): number | null =>
+  cents === null || cents === undefined ? null : cents / 100;
+
+const clampScore = (value: unknown): number | null => {
+  const score = typeof value === 'number' ? value : Number(value);
+
+  return Number.isFinite(score) ? Math.min(100, Math.max(1, Math.round(score))) : null;
+};
 
 const compactOffer = (offer: MarketOfferDto) => ({
   kind: offer.kind,
@@ -178,7 +214,197 @@ export class AssistantTasksService {
     private readonly blueGems: BlueGemService,
     private readonly blueValues: BlueValueService,
     private readonly floats: FloatSearchService,
+    private readonly items: ItemsService,
   ) {}
+
+  private readonly analyses = new Map<string, { at: number; value: ItemAnalysisDto }>();
+
+  async analyzeItem(userId: string, input: ItemAnalysisInputDto): Promise<ItemAnalysisDto> {
+    const fees = {
+      feeWhiteMarket: input.feeWhiteMarket ?? DEFAULT_FEE_PERCENT,
+      feeDmarket: input.feeDmarket ?? DEFAULT_FEE_PERCENT,
+      feeCsfloat: input.feeCsfloat ?? DEFAULT_FEE_PERCENT,
+    };
+    const key = [userId, input.name, fees.feeWhiteMarket, fees.feeDmarket, fees.feeCsfloat].join(
+      '|',
+    );
+    const cached = this.analyses.get(key);
+    const refresh = input.refresh === true || input.refresh === 'true';
+
+    if (!refresh && cached && Date.now() - cached.at < ANALYSIS_TTL_MS) return cached.value;
+
+    const credentials = await this.assistant.credentials(userId);
+    const view = await this.items.get(input.name, fees);
+    const listings = await this.items.listingsFor(input.name).catch(() => null);
+    const offerMarket = view.top?.market ?? null;
+    const cheapest = (listings?.listings ?? [])
+      .filter((listing) => !offerMarket || listing.market === offerMarket)
+      .sort((left, right) => left.price - right.price)[0];
+    const lotFloat = cheapest?.float ? Number(cheapest.float) : null;
+    const lot: AnalyzedLotDto | null = cheapest
+      ? {
+          market: cheapest.market,
+          price: cheapest.price,
+          float: lotFloat !== null && Number.isFinite(lotFloat) ? lotFloat : null,
+          paintSeed: cheapest.paintSeed,
+          fade: fadeShare(input.name, cheapest.paintSeed)?.percentage ?? null,
+          blue: blueShare(input.name, cheapest.paintSeed)?.playside ?? null,
+          url: cheapest.url,
+        }
+      : null;
+    const { marketHashName } = parseVariantName(input.name);
+    const [sales, nearFloat, blueValue] = await Promise.all([
+      this.csfloat.isEnabled
+        ? this.csfloat.fetchRecentSales(marketHashName).catch(() => [])
+        : Promise.resolve([]),
+      lot?.float !== null && lot?.float !== undefined
+        ? this.floats
+            .search({
+              name: input.name,
+              floatFrom: Math.max(0, lot.float - FLOAT_WINDOW),
+              floatTo: Math.min(1, lot.float + FLOAT_WINDOW),
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+      lot?.blue !== null && lot?.blue !== undefined && lot.paintSeed !== null
+        ? this.blueValues.value(input.name, lot.paintSeed).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    const similarSales =
+      lot?.float !== null && lot?.float !== undefined ? similarFloatSales(sales, lot.float) : null;
+    const nearListings = nearFloat
+      ? [nearFloat.dmarket, nearFloat.whiteMarket, nearFloat.csfloat]
+          .flatMap((source) => source.listings)
+          .sort((left, right) => left.price - right.price)
+      : [];
+    const acceptingOrders = (nearFloat?.orders ?? []).filter(
+      (order) =>
+        lot?.float !== null &&
+        lot?.float !== undefined &&
+        (!order.range || (lot.float >= order.range[0] && lot.float < order.range[1])),
+    );
+    const now = Date.now();
+    const facts = {
+      item: input.name,
+      category: view.category,
+      phase: view.phase,
+      lot: lot && {
+        market: lot.market,
+        priceUsd: usd(lot.price),
+        float: lot.float,
+        pattern: lot.paintSeed,
+        fadePercent: lot.fade,
+        blueSharePlayside: lot.blue,
+        stickers: cheapest?.stickers.map((sticker) => ({
+          name: sticker.name,
+          wear: sticker.wear,
+          priceUsd: usd(sticker.price),
+        })),
+        stickersValueUsd: usd(cheapest?.stickersValue),
+      },
+      marketPrices: Object.fromEntries(
+        (['whiteMarket', 'dmarket', 'csfloat', 'lisSkins'] as const).map((market) => [
+          market,
+          view[market]
+            ? { priceUsd: usd(view[market].price), listings: view[market].listings }
+            : null,
+        ]),
+      ),
+      dmarketBestBuyOrderUsd: usd(view.dmarket?.bid),
+      topOffer: view.top && {
+        market: view.top.market,
+        priceUsd: usd(view.top.price),
+        usualPriceUsd: usd(view.top.reference),
+        discountPercent: view.top.percent,
+        buyOrderCoverPercent: view.top.bidCover,
+      },
+      dmarketSales: view.sales && {
+        weekSales: view.sales.weekSales,
+        eightWeekSales: view.sales.eightWeekSales,
+        eightWeekAverageUsd: usd(view.sales.eightWeekAverage),
+        usualFloorUsd: usd(view.sales.floor),
+        weekTrendPercent: view.sales.trendPercent,
+      },
+      csfloatRecentSales: sales.length
+        ? {
+            count: sales.length,
+            medianUsd: usd(median(sales.map((sale) => sale.price))),
+            similarFloat: similarSales && {
+              count: similarSales.count,
+              floatRange: similarSales.floatRange,
+              medianUsd: usd(similarSales.median),
+              lowUsd: usd(similarSales.low),
+              highUsd: usd(similarSales.high),
+            },
+            nearestByFloat:
+              lot?.float !== null && lot?.float !== undefined
+                ? [...sales]
+                    .sort(
+                      (left, right) =>
+                        Math.abs(left.float - lot.float!) - Math.abs(right.float - lot.float!),
+                    )
+                    .slice(0, RECENT_SALES)
+                    .map((sale) => ({
+                      priceUsd: usd(sale.price),
+                      float: Math.round(sale.float * 10_000) / 10_000,
+                      pattern: sale.paintSeed,
+                      fadePercent: fadeShare(input.name, sale.paintSeed)?.percentage ?? null,
+                      daysAgo: Math.round((now - Date.parse(sale.soldAt)) / DAY_MS),
+                    }))
+                : [],
+          }
+        : null,
+      listingsWithSimilarFloat: nearListings.slice(0, NEAR_LISTINGS).map((listing) => ({
+        market: listing.market,
+        priceUsd: usd(listing.price),
+        float: listing.float,
+      })),
+      buyOrdersForThisFloat: acceptingOrders.slice(0, 3).map((order) => ({
+        priceUsd: usd(order.price),
+        amount: order.amount,
+        floatRange: order.range,
+      })),
+      blueGemEstimate: blueValue && {
+        estimateUsd: usd(blueValue.estimate),
+        similarSales: blueValue.comparableCount,
+      },
+      resale: {
+        listElsewhereAfterFees: view.flip && {
+          buyOn: view.flip.buyOn,
+          sellOn: view.flip.sellOn,
+          profitUsd: usd(view.flip.profit),
+          percent: view.flip.percent,
+        },
+        sellToBuyOrderAfterFees: view.instant && {
+          profitUsd: usd(view.instant.profit),
+          percent: view.instant.percent,
+        },
+      },
+      sellerFeesPercent: fees,
+    };
+    const answer = await this.client.ask(credentials, {
+      system: ANALYSIS_SYSTEM,
+      prompt: JSON.stringify(facts),
+    });
+    const parsed = extractJson<Record<string, unknown>>(answer.text) ?? {};
+    const score = clampScore(parsed.score) ?? 50;
+    const value: ItemAnalysisDto = {
+      score,
+      verdict:
+        oneOf(parsed.verdict, ANALYSIS_VERDICTS) ??
+        (score >= 60 ? 'buy' : score >= 40 ? 'consider' : 'skip'),
+      summary: typeof parsed.summary === 'string' ? parsed.summary.trim() : '',
+      pros: textList(parsed.pros, 4),
+      cons: textList(parsed.cons, 4),
+      lot,
+      similarSales,
+      analyzedAt: new Date().toISOString(),
+    };
+
+    this.analyses.set(key, { at: Date.now(), value });
+
+    return value;
+  }
 
   async brief(userId: string, matchId: number, refresh: boolean): Promise<MatchBriefDto> {
     const key = `${userId}:${matchId}`;

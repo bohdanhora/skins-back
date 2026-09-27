@@ -27,6 +27,8 @@ import {
   BluePicksInputDto,
   FloatPicksDto,
   FloatPicksInputDto,
+  ItemAnalysisDto,
+  ItemAnalysisInputDto,
   MatchBriefDto,
   PurchaseDraftDto,
   PurchaseDraftInputDto,
@@ -131,6 +133,22 @@ export class AssistantController {
     @Body() body: BluePicksInputDto,
   ): Promise<BluePicksDto> {
     return this.tasks.bluePicks(user.id, body);
+  }
+
+  @Post('item-analysis')
+  @Throttle(TASK_LIMIT)
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(200)
+  @ApiOperation({
+    summary: 'Judge the cheapest lot of an item by float, pattern, sales and resale, 1-100',
+  })
+  @ApiOkResponse({ type: ItemAnalysisDto })
+  itemAnalysis(
+    @CurrentUser() user: UserEntity,
+    @Body() body: ItemAnalysisInputDto,
+  ): Promise<ItemAnalysisDto> {
+    return this.tasks.analyzeItem(user.id, body);
   }
 
   @Post('float-picks')

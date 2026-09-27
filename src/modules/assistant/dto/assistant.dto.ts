@@ -327,3 +327,93 @@ export class FloatPicksDto {
   @ApiProperty({ type: String, nullable: true })
   csfloatPausedUntil!: string | null;
 }
+
+export class ItemAnalysisInputDto {
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  name!: string;
+
+  @ApiPropertyOptional({ description: 'white.market seller fee, %' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  feeWhiteMarket?: number;
+
+  @ApiPropertyOptional({ description: 'DMarket seller fee, %' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  feeDmarket?: number;
+
+  @ApiPropertyOptional({ description: 'CSFloat seller fee, %' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  feeCsfloat?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsIn([true, false, 'true', 'false'])
+  refresh?: boolean | string;
+}
+
+export class AnalyzedLotDto {
+  market!: string;
+  price!: number;
+
+  @ApiProperty({ type: Number, nullable: true })
+  float!: number | null;
+
+  @ApiProperty({ type: Number, nullable: true })
+  paintSeed!: number | null;
+
+  @ApiProperty({ type: Number, nullable: true, description: 'Fade percentage of the pattern' })
+  fade!: number | null;
+
+  @ApiProperty({ type: Number, nullable: true, description: 'Blue share of the playside, %' })
+  blue!: number | null;
+
+  url!: string;
+}
+
+export class SimilarSalesDto {
+  count!: number;
+  median!: number;
+  low!: number;
+  high!: number;
+
+  @ApiProperty({ type: [Number] })
+  floatRange!: [number, number];
+}
+
+export class ItemAnalysisDto {
+  @ApiProperty({ description: 'Chance the purchase pays off, 1-100' })
+  score!: number;
+
+  @ApiProperty({ enum: ['buy', 'consider', 'skip'] })
+  verdict!: 'buy' | 'consider' | 'skip';
+
+  summary!: string;
+
+  @ApiProperty({ type: [String] })
+  pros!: string[];
+
+  @ApiProperty({ type: [String] })
+  cons!: string[];
+
+  @ApiProperty({ type: AnalyzedLotDto, nullable: true })
+  lot!: AnalyzedLotDto | null;
+
+  @ApiProperty({ type: SimilarSalesDto, nullable: true })
+  similarSales!: SimilarSalesDto | null;
+
+  analyzedAt!: string;
+}

@@ -33,6 +33,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "csgo-blue-gem-calculator": "^0.0.3",
+    "csgo-fade-percentage-calculator": "^2.0.0",
     "helmet": "^8.3.0",
     "nestjs-pino": "^5.2.0",
     "pg": "^8.23.0",
