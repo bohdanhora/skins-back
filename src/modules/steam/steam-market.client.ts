@@ -10,12 +10,32 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const PRICE_OVERVIEW_URL = 'https://steamcommunity.com/market/priceoverview/';
 const PRICE_TTL_MS = 15 * 60_000;
 const PRICE_GAP_MS = 3_000;
+const ACTIONS_URL = 'https://steamcommunity.com/market/actions';
+const FLOAT_PROPERTY = 2;
+const LISTINGS_PAGE = 20;
+const LISTINGS_LIMIT = 60;
+const BUCKET = /\{"bucket_id":"([^"]*)"[^{}]*?"filters":(\[\[[^{}]*?\]\])\}/g;
+const PAGE_OPTIONS = {
+  timeoutMs: REQUEST_TIMEOUT_MS,
+  retries: 1,
+  headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SkinScout/1.0)' },
+};
 
 interface RawSteamListing {
   listingid: string;
   strSubtotal: string;
   description: { market_hash_name: string };
   asset: { asset_properties?: RawAssetProperty[] };
+}
+
+interface RawListingsPage {
+  more: boolean;
+  listings: RawSteamListing[];
+}
+
+export interface SteamBucket {
+  group: string;
+  filters: Record<string, string[]>;
 }
 
 interface RawSteamPage {
@@ -55,6 +75,7 @@ export interface SteamListing {
 @Injectable()
 export class SteamMarketClient {
   private readonly prices = new Map<string, { price: SteamPrice; at: number }>();
+  private readonly buckets = new Map<string, SteamBucket>();
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly rates: ExchangeRateClient) {}
@@ -76,7 +97,7 @@ export class SteamMarketClient {
         lowest: parseUsd(raw.lowest_price),
         median: parseUsd(raw.median_price),
         volume: Number((raw.volume ?? '0').replace(/\D/g, '')) || 0,
-        url: `${LISTING_URL}/${encodeURIComponent(name)}`,
+        url: listingUrl(name, this.buckets.get(name)),
       };
 
       this.prices.set(name, { price, at: Date.now() });
@@ -95,24 +116,12 @@ export class SteamMarketClient {
     floatTo?: number,
     phase?: MarketPhase | null,
   ): Promise<SteamListing[]> {
-    const url = `${LISTING_URL}/${encodeURIComponent(name)}`;
-    const options = {
-      timeoutMs: REQUEST_TIMEOUT_MS,
-      retries: 1,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SkinScout/1.0)' },
-    };
-    const [pages, uahPerUsd] = await Promise.all([
-      Promise.all(
-        [0, 20, 40].map(async (start) =>
-          parseSteamPage(await fetchText(`${url}?start=${start}`, options)),
-        ),
-      ),
+    const [{ raw, url }, uahPerUsd] = await Promise.all([
+      this.rawListings(name, floatFrom, floatTo),
       this.rates.uahPerUsd(),
     ]);
 
-    return pages
-      .flatMap((page) => page.pages)
-      .flatMap((entry) => entry.listings)
+    return raw
       .filter((listing) => listing.description.market_hash_name === name)
       .map((listing) => toSteamListing(listing, url, uahPerUsd))
       .filter(
@@ -122,7 +131,122 @@ export class SteamMarketClient {
           (!phase || listing.phase === phase),
       );
   }
+
+  private async rawListings(
+    name: string,
+    floatFrom?: number,
+    floatTo?: number,
+  ): Promise<{ raw: RawSteamListing[]; url: string }> {
+    let bucket = this.buckets.get(name);
+
+    if (!bucket) {
+      const html = await fetchText(listingUrl(name), PAGE_OPTIONS);
+
+      bucket = readBucket(html, name) ?? undefined;
+
+      if (!bucket) {
+        return {
+          raw: parseSteamPage(html).pages.flatMap((page) => page.listings),
+          url: listingUrl(name),
+        };
+      }
+
+      this.buckets.set(name, bucket);
+    }
+
+    const listings: RawSteamListing[] = [];
+    let query = bucket;
+
+    for (let start = 0; start < LISTINGS_LIMIT; start += LISTINGS_PAGE) {
+      let page = await this.queryListings(query, start, floatFrom, floatTo);
+
+      if (start === 0 && page.listings.length === 0 && Object.keys(query.filters).length > 0) {
+        query = { ...bucket, filters: {} };
+        page = await this.queryListings(query, start, floatFrom, floatTo);
+      }
+
+      listings.push(...page.listings);
+
+      if (!page.more || page.listings.length === 0) break;
+    }
+
+    return { raw: listings, url: listingUrl(name, bucket) };
+  }
+
+  private async queryListings(
+    bucket: SteamBucket,
+    start: number,
+    floatFrom?: number,
+    floatTo?: number,
+  ): Promise<RawListingsPage> {
+    const params = {
+      appid: 730,
+      strItemName: bucket.group,
+      start,
+      filters: bucket.filters,
+      accessoryFilters: {},
+      propertyFilters:
+        floatFrom === undefined && floatTo === undefined
+          ? {}
+          : {
+              [FLOAT_PROPERTY]: {
+                property_id: FLOAT_PROPERTY,
+                float_min: floatFrom ?? 0,
+                float_max: floatTo ?? 1,
+              },
+            },
+    };
+    const query = new URLSearchParams({
+      q: 'QueryListingsForItem',
+      qp: JSON.stringify([params]),
+    });
+    const { data } = await fetchJson<{ data: RawListingsPage | null }>(`${ACTIONS_URL}?${query}`, {
+      ...PAGE_OPTIONS,
+      headers: { ...PAGE_OPTIONS.headers, 'x-valve-request-type': 'queryAction' },
+    });
+
+    if (!data) throw new Error('Steam did not return market listings');
+
+    return { more: data.more, listings: data.listings ?? [] };
+  }
 }
+
+export const listingUrl = (name: string, bucket?: SteamBucket): string => {
+  if (!bucket) return `${LISTING_URL}/${encodeURIComponent(name)}`;
+
+  const query = new URLSearchParams(
+    Object.entries(bucket.filters).flatMap(([key, values]) =>
+      values.map((value): [string, string] => [`category_${key}`, value]),
+    ),
+  );
+
+  return `${LISTING_URL}/${bucket.group}?${query}`;
+};
+
+export const readBucket = (html: string, name: string): SteamBucket | null => {
+  const text = html.replace(/\\+"/g, '"');
+  const group = /"strItemName":"(G[0-9A-F]+)"/.exec(text)?.[1];
+
+  if (!group) return null;
+
+  for (const match of text.matchAll(BUCKET)) {
+    try {
+      if (match[1] !== name) continue;
+
+      const filters: Record<string, string[]> = {};
+
+      for (const [key, value] of JSON.parse(match[2]) as [string, string][]) {
+        (filters[key] ??= []).push(value);
+      }
+
+      return { group, filters };
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+};
 
 const toSteamListing = (
   listing: RawSteamListing,
