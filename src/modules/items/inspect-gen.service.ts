@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 
 import {
   genCommand,
+  itemQuality,
   PREVIEW_COMMAND,
   PREVIEW_LINK,
   previewHex,
@@ -65,6 +66,7 @@ export class InspectGenService {
       defindex: skin.weaponIndex,
       paintindex,
       rarity: rarityIndex(skin.rarity),
+      quality: itemQuality(variant.marketHashName),
       paintwear: float,
       paintseed: query.seed ?? DEFAULT_SEED,
       stattrak: variant.marketHashName.includes('StatTrak™'),

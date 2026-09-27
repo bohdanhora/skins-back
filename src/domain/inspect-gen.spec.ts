@@ -1,4 +1,4 @@
-import { genCommand, previewHex } from './inspect-gen';
+import { genCommand, itemQuality, previewHex } from './inspect-gen';
 
 describe('inspect generator', () => {
   it('builds the same preview data as the reference library', () => {
@@ -24,6 +24,24 @@ describe('inspect generator', () => {
         paintseed: 799,
       }),
     ).toMatch(/^0018FB0320A20328063885CDB3EC03409F06/);
+  });
+
+  it('marks StatTrak and Souvenir items with their quality', () => {
+    expect(itemQuality('StatTrak™ Desert Eagle | Bronze Deco (Factory New)')).toBe(9);
+    expect(itemQuality('Souvenir AWP | Dragon Lore (Factory New)')).toBe(12);
+    expect(itemQuality('★ StatTrak™ Karambit | Doppler (Factory New)')).toBe(3);
+    expect(itemQuality('★ Karambit | Doppler (Factory New)')).toBeUndefined();
+    expect(itemQuality('AK-47 | Redline (Field-Tested)')).toBeUndefined();
+    expect(
+      previewHex({
+        defindex: 1,
+        paintindex: 425,
+        quality: 9,
+        paintwear: 0.0668,
+        paintseed: 177,
+        stattrak: true,
+      }),
+    ).toMatch(/^00180120A903300938[0-9A-F]+40B10148005000/);
   });
 
   it('writes a gen command with five sticker slots', () => {

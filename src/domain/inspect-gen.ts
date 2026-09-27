@@ -12,6 +12,7 @@ export interface PreviewItem {
   defindex: number;
   paintindex: number;
   rarity?: number;
+  quality?: number;
   paintwear: number;
   paintseed: number;
   stattrak?: boolean;
@@ -31,6 +32,18 @@ const RARITY: Record<string, number> = {
   Covert: 6,
   Extraordinary: 6,
   Contraband: 7,
+};
+
+const STAR_QUALITY = 3;
+const STATTRAK_QUALITY = 9;
+const SOUVENIR_QUALITY = 12;
+
+export const itemQuality = (name: string): number | undefined => {
+  if (name.startsWith('★')) return name.includes('StatTrak™') ? STAR_QUALITY : undefined;
+  if (name.startsWith('StatTrak™')) return STATTRAK_QUALITY;
+  if (name.startsWith('Souvenir ')) return SOUVENIR_QUALITY;
+
+  return undefined;
 };
 
 export const rarityIndex = (name: string): number | undefined => RARITY[name];
@@ -89,6 +102,7 @@ const encodeItem = (item: PreviewItem): number[] => [
   ...uint(3, item.defindex),
   ...uint(4, item.paintindex),
   ...(item.rarity === undefined ? [] : uint(5, item.rarity)),
+  ...(item.quality === undefined ? [] : uint(6, item.quality)),
   ...uint(7, floatBits(item.paintwear)),
   ...uint(8, item.paintseed),
   ...(item.stattrak ? [...uint(9, 0), ...uint(10, 0)] : []),
