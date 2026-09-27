@@ -20,6 +20,12 @@ describe('evaluateStickerDeal', () => {
     expect(evaluateStickerDeal(70, 60, [navi, navi], [navi.name]).wantedValue).toBe(272);
   });
 
+  it('does not count a scraped sticker', () => {
+    expect(
+      evaluateStickerDeal(70, 60, [navi, { ...navi, wear: 0.3 }], [navi.name]).wantedValue,
+    ).toBe(136);
+  });
+
   it('treats a listing cheaper than the base as a free sticker', () => {
     expect(evaluateStickerDeal(35, 40, [navi], [navi.name])).toMatchObject({
       overpay: -5,

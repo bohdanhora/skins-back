@@ -22,8 +22,32 @@ export class ListingStickerDto {
   @ApiProperty({ nullable: true })
   image!: string | null;
 
+  @ApiProperty({
+    nullable: true,
+    description: 'Slot on the weapon from 0, when the market tells it',
+  })
+  slot!: number | null;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'How scraped the sticker is, 0 to 1; null when intact',
+  })
+  wear!: number | null;
+
+  @ApiProperty({ nullable: true, description: 'Custom placement shift from the slot' })
+  offsetX!: number | null;
+
+  @ApiProperty({ nullable: true })
+  offsetY!: number | null;
+
+  @ApiProperty({ nullable: true, description: 'Degrees' })
+  rotation!: number | null;
+
   @ApiProperty({ nullable: true, description: 'Cheapest price of this sticker on its own, cents' })
   price!: number | null;
+
+  @ApiProperty({ description: 'What it adds to the skin: nothing once scraped, cents' })
+  value!: number;
 }
 
 export class ListingViewDto {
@@ -45,7 +69,7 @@ export class ListingViewDto {
   @ApiProperty({ type: [ListingStickerDto] })
   stickers!: ListingStickerDto[];
 
-  @ApiProperty({ description: 'What the applied stickers cost on their own, cents' })
+  @ApiProperty({ description: 'What the intact applied stickers cost on their own, cents' })
   stickersValue!: number;
 
   @ApiProperty({ nullable: true, description: 'Cheapest listing of the same item, cents' })

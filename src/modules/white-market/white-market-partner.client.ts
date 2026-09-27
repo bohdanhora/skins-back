@@ -5,6 +5,8 @@ import { whiteMarketConfig, type WhiteMarketConfig } from '../../config/app.conf
 import {
   dollarsToCents,
   toStickerItemName,
+  toStickerNumber,
+  toStickerWear,
   withoutStickerPrefix,
   type Listing,
 } from '../../domain/listing';
@@ -31,7 +33,7 @@ query Listings($search: MarketProductSearchInput, $first: Int, $after: String) {
             float
             paintSeed
             nameHash
-            stickers { name title icon }
+            stickers { name title icon wear offsetX offsetY }
             description { ... on CSGOSteamItem { icon } }
           }
         }
@@ -61,7 +63,16 @@ interface RawProduct {
     float?: string | null;
     paintSeed?: string | null;
     nameHash?: string | null;
-    stickers?: ({ name: string; title: string; icon: string | null } | null)[] | null;
+    stickers?:
+      | ({
+          name: string;
+          title: string;
+          icon: string | null;
+          wear?: string | null;
+          offsetX?: string | null;
+          offsetY?: string | null;
+        } | null)[]
+      | null;
     description?: { icon?: string | null } | null;
   } | null;
 }
@@ -202,6 +213,11 @@ export class WhiteMarketPartnerClient {
         .map((sticker) => ({
           name: toStickerItemName(sticker.title || sticker.name),
           image: sticker.icon,
+          slot: null,
+          wear: toStickerWear(sticker.wear),
+          offsetX: toStickerNumber(sticker.offsetX),
+          offsetY: toStickerNumber(sticker.offsetY),
+          rotation: null,
         })),
       url: node.slug ? whiteMarketListingUrl(node.slug) : whiteMarketItemUrl(name),
     };

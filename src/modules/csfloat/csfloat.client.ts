@@ -3,7 +3,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import { UpstreamError } from '../../common/http/fetch-json';
 import { RateGate, type RateSnapshot } from '../../domain/rate-gate';
 import { csfloatConfig, type CsfloatConfig } from '../../config/app.config';
-import { type Listing, toStickerItemName } from '../../domain/listing';
+import {
+  bySlot,
+  type Listing,
+  toStickerItemName,
+  toStickerNumber,
+  toStickerWear,
+} from '../../domain/listing';
 import {
   COMMON_DOPPLER_PHASES,
   hasDopplerPhases,
@@ -34,7 +40,15 @@ export interface RawCsfloatListing {
     paint_seed: number;
     paint_index: number;
     icon_url?: string;
-    stickers?: { name: string; icon_url?: string }[];
+    stickers?: {
+      name: string;
+      icon_url?: string;
+      slot?: number;
+      wear?: number;
+      rotation?: number;
+      offset_x?: number;
+      offset_y?: number;
+    }[];
     blue_gem?: RawBlueGem | null;
   };
 }
@@ -284,10 +298,17 @@ export class CsfloatClient {
         image: imageUrl(row.item.icon_url),
         price: row.price,
         float: Number.isFinite(row.item.float_value) ? String(row.item.float_value) : null,
-        stickers: (row.item.stickers ?? []).map((sticker) => ({
-          name: sticker.name,
-          image: imageUrl(sticker.icon_url),
-        })),
+        stickers: (row.item.stickers ?? [])
+          .map((sticker) => ({
+            name: toStickerItemName(sticker.name),
+            image: imageUrl(sticker.icon_url),
+            slot: Number.isInteger(sticker.slot) ? sticker.slot! : null,
+            wear: toStickerWear(sticker.wear),
+            offsetX: toStickerNumber(sticker.offset_x),
+            offsetY: toStickerNumber(sticker.offset_y),
+            rotation: toStickerNumber(sticker.rotation),
+          }))
+          .sort(bySlot),
         url: `https://csfloat.com/item/${encodeURIComponent(row.id)}`,
       }));
   }

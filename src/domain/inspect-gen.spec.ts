@@ -14,6 +14,18 @@ describe('inspect generator', () => {
     ).toBe('00180720DA03280638FBEE88F90340B2026213080310021D00000000250000803F2D00000000503D5A64');
   });
 
+  it('keeps the slot, scrape and custom placement of a sticker', () => {
+    expect(
+      previewHex({
+        defindex: 7,
+        paintindex: 282,
+        paintwear: 0.15,
+        paintseed: 1,
+        stickers: [{ slot: 2, stickerId: 974, wear: 0.5, offsetX: 0.05, offsetY: -0.01 }],
+      }),
+    ).toContain('6214080210CE071D0000003F3DCDCC4C3D450AD723BC');
+  });
+
   it('matches a Karambit Doppler Phase 1 link from cs2inspects', () => {
     expect(
       previewHex({

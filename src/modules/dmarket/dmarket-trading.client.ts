@@ -2,7 +2,14 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import { fetchJson } from '../../common/http/fetch-json';
 import { dmarketConfig, type DmarketConfig } from '../../config/app.config';
-import { toStickerItemName, withoutStickerPrefix, type Listing } from '../../domain/listing';
+import {
+  bySlot,
+  toStickerItemName,
+  toStickerNumber,
+  toStickerWear,
+  withoutStickerPrefix,
+  type Listing,
+} from '../../domain/listing';
 import { MarketId, dmarketListingUrl } from '../../domain/market-links';
 import { DmarketRateLimiter } from './dmarket-rate-limiter';
 import { DmarketSigner } from './dmarket-signer';
@@ -20,7 +27,15 @@ interface RawOffer {
     imageUri: string;
     cs2?: {
       float?: string;
-      stickers?: { name: string; image: string }[];
+      stickers?: {
+        name: string;
+        image: string;
+        slot?: number;
+        wear?: string;
+        rotation?: string;
+        offsetX?: number;
+        offsetY?: number;
+      }[];
     };
   };
 }
@@ -114,10 +129,17 @@ export class DmarketTradingClient {
       image: imageUri || null,
       price: Number(offer.priceCents),
       float: cs2?.float ?? null,
-      stickers: (cs2?.stickers ?? []).map((sticker) => ({
-        name: toStickerItemName(sticker.name),
-        image: sticker.image || null,
-      })),
+      stickers: (cs2?.stickers ?? [])
+        .map((sticker) => ({
+          name: toStickerItemName(sticker.name),
+          image: sticker.image || null,
+          slot: Number.isInteger(sticker.slot) ? sticker.slot! : null,
+          wear: toStickerWear(sticker.wear),
+          offsetX: toStickerNumber(sticker.offsetX),
+          offsetY: toStickerNumber(sticker.offsetY),
+          rotation: toStickerNumber(sticker.rotation),
+        }))
+        .sort(bySlot),
       url: dmarketListingUrl(title, cs2?.float ?? null),
     };
   }

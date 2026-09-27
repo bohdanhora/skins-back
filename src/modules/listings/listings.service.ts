@@ -1,7 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { type Listing } from '../../domain/listing';
-import { compareStickerDeals, evaluateStickerDeal } from '../../domain/sticker-deals';
+import {
+  appliedStickerValue,
+  compareStickerDeals,
+  evaluateStickerDeal,
+} from '../../domain/sticker-deals';
 import { DmarketTradingClient } from '../dmarket/dmarket-trading.client';
 import { CsfloatClient } from '../csfloat/csfloat.client';
 import { ItemIndexService } from '../items/item-index.service';
@@ -150,10 +154,11 @@ export class ListingsService {
   }
 
   private toView(listing: Listing, wanted: string[]): ListingViewDto {
-    const stickers = listing.stickers.map((sticker) => ({
-      ...sticker,
-      price: this.index.cheapestPrice(sticker.name),
-    }));
+    const stickers = listing.stickers.map((sticker) => {
+      const priced = { ...sticker, price: this.index.cheapestPrice(sticker.name) };
+
+      return { ...priced, value: appliedStickerValue(priced) };
+    });
 
     return {
       ...listing,
@@ -165,7 +170,7 @@ export class ListingsService {
       ),
       image: listing.image ?? this.index.find(listing.name)?.image ?? null,
       stickers,
-      stickersValue: stickers.reduce((sum, sticker) => sum + (sticker.price ?? 0), 0),
+      stickersValue: stickers.reduce((sum, sticker) => sum + sticker.value, 0),
     };
   }
 }

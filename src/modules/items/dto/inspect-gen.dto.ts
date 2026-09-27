@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -11,7 +11,54 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
+
+export class StickerLayoutDto {
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(4)
+  slot?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  wear?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-1)
+  @Max(1)
+  offsetX?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-1)
+  @Max(1)
+  offsetY?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-360)
+  @Max(360)
+  rotation?: number | null;
+}
+
+const parseLayout = ({ value }: { value: unknown }): unknown => {
+  let parsed = value;
+
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value) as unknown;
+    } catch {
+      return value;
+    }
+  }
+
+  return Array.isArray(parsed) ? plainToInstance(StickerLayoutDto, parsed) : parsed;
+};
 
 export class InspectGenQueryDto {
   @ApiProperty({ description: 'Market name, a Doppler phase may follow in square brackets' })
@@ -43,6 +90,18 @@ export class InspectGenQueryDto {
   @ArrayMaxSize(5)
   @IsString({ each: true })
   stickers?: string[];
+
+  @ApiPropertyOptional({
+    type: String,
+    description:
+      'JSON array aligned with stickers: [{ slot, wear, offsetX, offsetY, rotation }], any field may be null',
+  })
+  @IsOptional()
+  @Transform(parseLayout)
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  layout?: StickerLayoutDto[];
 }
 
 export class InspectGenDto {

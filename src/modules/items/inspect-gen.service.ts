@@ -8,6 +8,7 @@ import {
   previewHex,
   rarityIndex,
   type PreviewItem,
+  type PreviewSticker,
 } from '../../domain/inspect-gen';
 import { paintIndexForPhase, parseVariantName } from '../../domain/market-variant';
 import { skinBaseName } from '../../domain/skin-name';
@@ -50,7 +51,22 @@ export class InspectGenService {
     }
 
     const missingStickers: string[] = [];
-    const stickers = (query.stickers ?? []).flatMap((name, slot) => {
+    const taken = new Set(
+      (query.layout ?? []).flatMap((place) =>
+        typeof place?.slot === 'number' ? [place.slot] : [],
+      ),
+    );
+    const freeSlot = (): number => {
+      let slot = 0;
+
+      while (taken.has(slot)) slot += 1;
+      taken.add(slot);
+
+      return slot;
+    };
+    const stickers = (query.stickers ?? []).flatMap((name, index): PreviewSticker[] => {
+      const place = query.layout?.[index];
+      const slot = typeof place?.slot === 'number' ? place.slot : freeSlot();
       const stickerId =
         this.catalog.get(name)?.defIndex ?? this.catalog.get(`Sticker | ${name}`)?.defIndex;
 
@@ -60,7 +76,16 @@ export class InspectGenService {
         return [];
       }
 
-      return [{ slot, stickerId, wear: 0 }];
+      return [
+        {
+          slot,
+          stickerId,
+          wear: place?.wear ?? 0,
+          ...(typeof place?.rotation === 'number' ? { rotation: place.rotation } : {}),
+          ...(typeof place?.offsetX === 'number' ? { offsetX: place.offsetX } : {}),
+          ...(typeof place?.offsetY === 'number' ? { offsetY: place.offsetY } : {}),
+        },
+      ];
     });
     const item: PreviewItem = {
       defindex: skin.weaponIndex,

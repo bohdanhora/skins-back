@@ -6,6 +6,8 @@ export interface PreviewSticker {
   wear?: number;
   scale?: number;
   rotation?: number;
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export interface PreviewItem {
@@ -96,6 +98,8 @@ const encodeSticker = (sticker: PreviewSticker): number[] => [
   ...(sticker.wear === undefined ? [] : fixed(3, sticker.wear)),
   ...(sticker.scale === undefined ? [] : fixed(4, sticker.scale)),
   ...(sticker.rotation === undefined ? [] : fixed(5, sticker.rotation)),
+  ...(sticker.offsetX === undefined ? [] : fixed(7, sticker.offsetX)),
+  ...(sticker.offsetY === undefined ? [] : fixed(8, sticker.offsetY)),
 ];
 
 const encodeItem = (item: PreviewItem): number[] => [

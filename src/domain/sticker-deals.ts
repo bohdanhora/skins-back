@@ -3,6 +3,7 @@ import { toStickerItemName } from './listing';
 export interface PricedSticker {
   name: string;
   price: number | null;
+  wear?: number | null;
 }
 
 export interface StickerDeal {
@@ -11,6 +12,9 @@ export interface StickerDeal {
   wantedValue: number;
   overpayShare: number | null;
 }
+
+export const appliedStickerValue = (sticker: PricedSticker): number =>
+  sticker.wear ? 0 : (sticker.price ?? 0);
 
 const normalize = (name: string): string => toStickerItemName(name).toLowerCase();
 
@@ -23,7 +27,7 @@ export const evaluateStickerDeal = (
   const wantedNames = new Set(wanted.map(normalize));
   const wantedValue = stickers
     .filter((sticker) => wantedNames.has(normalize(sticker.name)))
-    .reduce((sum, sticker) => sum + (sticker.price ?? 0), 0);
+    .reduce((sum, sticker) => sum + appliedStickerValue(sticker), 0);
   const overpay = basePrice === null ? null : price - basePrice;
 
   return {
