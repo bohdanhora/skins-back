@@ -1,6 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { Public } from '../access/public.decorator';
+
 export class HealthDto {
   status!: 'ok';
   uptimeSeconds!: number;
@@ -9,6 +11,7 @@ export class HealthDto {
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
+  @Public()
   @Get()
   @ApiOperation({ summary: 'Liveness' })
   @ApiOkResponse({ type: HealthDto })

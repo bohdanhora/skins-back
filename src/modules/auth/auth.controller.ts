@@ -1,6 +1,7 @@
 import { Controller, Get, HttpCode, Post, Query, Redirect, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { Public } from '../access/public.decorator';
 import { AuthGuard, CurrentToken, CurrentUser } from './auth.guard';
 import { AuthService } from './auth.service';
 import { UserDto } from './dto/user.dto';
@@ -13,6 +14,7 @@ const NO_CONTENT = 204;
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  @Public()
   @Get('steam')
   @Redirect()
   @ApiOperation({ summary: 'Start signing in with Steam' })
@@ -20,6 +22,7 @@ export class AuthController {
     return { url: this.auth.steamLoginUrl(next) };
   }
 
+  @Public()
   @Get('steam/return')
   @Redirect()
   @ApiOperation({ summary: 'Steam sends the user back here after signing in' })

@@ -57,6 +57,11 @@ export interface DmarketConfig {
   isTradingEnabled: boolean;
 }
 
+export interface AccessConfig {
+  password: string;
+  days: number;
+}
+
 export interface CsfloatConfig {
   apiKey: string;
   isEnabled: boolean;
@@ -89,6 +94,11 @@ export const authConfig = registerAs<AuthConfig>('auth', () => ({
   publicApiUrl: (process.env.PUBLIC_API_URL ?? 'http://localhost:4100').replace(/\/+$/, ''),
   frontendUrl: (process.env.FRONTEND_URL ?? 'http://localhost:3100').replace(/\/+$/, ''),
   sessionDays: Number(process.env.SESSION_DAYS ?? 30),
+}));
+
+export const accessConfig = registerAs<AccessConfig>('access', () => ({
+  password: readSecret('APP_PASSWORD'),
+  days: Number(process.env.SESSION_DAYS ?? 30),
 }));
 
 export const bettingConfig = registerAs<BettingConfig>('betting', () => {
