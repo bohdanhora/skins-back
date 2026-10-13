@@ -115,6 +115,14 @@ export class AdminService {
     };
   }
 
+  async deleteUser(id: string): Promise<void> {
+    const result = await this.users.delete({ id });
+
+    if (!result.affected) {
+      throw new NotFoundException('User not found');
+    }
+  }
+
   async getUser(id: string): Promise<AdminUserDetail> {
     const user = await this.users.findOne({ where: { id } });
 

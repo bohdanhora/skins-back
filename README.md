@@ -82,8 +82,8 @@ set `DATABASE_SSL=true`.
 When `APP_PASSWORD` is set, every request except the access check needs a token issued for that
 password.
 
-`ADMIN_API_KEY` (at least 32 characters) opens `GET /api/admin/stats`, `GET /api/admin/users` and
-`GET /api/admin/users/:id` for the admin panel, which sends the key in the `X-Admin-Key` header.
+`ADMIN_API_KEY` (at least 32 characters) opens `GET /api/admin/stats`, `GET /api/admin/users`,
+`GET /api/admin/users/:id` and `DELETE /api/admin/users/:id` for the admin panel, which sends the key in the `X-Admin-Key` header.
 Without the key these routes answer `404`.
 
 ## Price sources

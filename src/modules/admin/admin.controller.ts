@@ -1,4 +1,14 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 
 import { Public } from '../access/public.decorator';
@@ -27,5 +37,11 @@ export class AdminController {
   @Get('users/:id')
   getUser(@Param('id', ParseUUIDPipe) id: string): Promise<AdminUserDetail> {
     return this.adminService.getUser(id);
+  }
+
+  @Delete('users/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteUser(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    return this.adminService.deleteUser(id);
   }
 }
