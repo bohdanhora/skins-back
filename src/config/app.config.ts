@@ -62,6 +62,11 @@ export interface AccessConfig {
   days: number;
 }
 
+export interface AdminConfig {
+  apiKey: string;
+  isEnabled: boolean;
+}
+
 export interface CsfloatConfig {
   apiKey: string;
   isEnabled: boolean;
@@ -142,6 +147,12 @@ export const dmarketConfig = registerAs<DmarketConfig>('dmarket', () => {
 
 export const csfloatConfig = registerAs<CsfloatConfig>('csfloat', () => {
   const apiKey = readSecret('CSFLOAT_API_KEY');
+
+  return { apiKey, isEnabled: apiKey.length > 0 };
+});
+
+export const adminConfig = registerAs<AdminConfig>('admin', () => {
+  const apiKey = readSecret('ADMIN_API_KEY');
 
   return { apiKey, isEnabled: apiKey.length > 0 };
 });
