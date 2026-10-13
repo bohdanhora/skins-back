@@ -14,6 +14,7 @@ import { CatalogService } from '../catalog/catalog.service';
 import { CsfloatClient, type CsfloatBlue, type CsfloatSale } from '../csfloat/csfloat.client';
 import { PriceBoardService } from '../prices/price-board.service';
 import type { BlueValueDto } from './dto/blue-value.dto';
+import { text } from '../../common/i18n/messages';
 
 const BLUES_KEY = 'csfloat-blue';
 const SALES_TTL_MS = 6 * 60 * 60_000;
@@ -51,7 +52,7 @@ export class BlueValueService implements OnModuleInit {
     const weapon = caseHardenedWeapon(name);
 
     if (!weapon) {
-      throw new BadRequestException('Only Case Hardened items have a blue share');
+      throw new BadRequestException(text('blueShareCaseHardenedOnly'));
     }
 
     const names = sameSkinOtherWears(name, [
@@ -68,7 +69,7 @@ export class BlueValueService implements OnModuleInit {
     const blue: BlueShare | null = known ?? weaponBlueShare(weapon, paintSeed);
 
     if (!blue) {
-      throw new BadRequestException('Unknown pattern');
+      throw new BadRequestException(text('unknownPattern'));
     }
 
     const patternSales = sales.flatMap((sale): PatternSale[] => {

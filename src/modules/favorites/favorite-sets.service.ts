@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import type { FavoriteSetDto, FavoriteSetInputDto } from './dto/favorite-set.dto';
 import { FavoriteSetEntity } from './favorite-set.entity';
+import { text } from '../../common/i18n/messages';
 
 const MAX_SETS = 30;
 
@@ -33,7 +34,7 @@ export class FavoriteSetsService {
 
   async create(userId: string, input: FavoriteSetInputDto): Promise<FavoriteSetDto> {
     if ((await this.sets.count({ where: { userId } })) >= MAX_SETS) {
-      throw new BadRequestException(`Можно хранить до ${MAX_SETS} наборов`);
+      throw new BadRequestException(text('setLimit', { limit: MAX_SETS }));
     }
 
     return toDto(await this.sets.save(this.sets.create({ ...clean(input), userId })));
@@ -42,7 +43,7 @@ export class FavoriteSetsService {
   async update(userId: string, id: string, input: FavoriteSetInputDto): Promise<FavoriteSetDto> {
     const existing = await this.sets.findOne({ where: { id, userId } });
 
-    if (!existing) throw new NotFoundException('Набор не найден');
+    if (!existing) throw new NotFoundException(text('setNotFound'));
 
     return toDto(await this.sets.save(Object.assign(existing, clean(input))));
   }
@@ -50,6 +51,6 @@ export class FavoriteSetsService {
   async remove(userId: string, id: string): Promise<void> {
     const result = await this.sets.delete({ id, userId });
 
-    if (!result.affected) throw new NotFoundException('Набор не найден');
+    if (!result.affected) throw new NotFoundException(text('setNotFound'));
   }
 }

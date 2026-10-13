@@ -21,6 +21,7 @@ import {
   type ItemLibraryDto,
   type ItemLibraryQueryDto,
 } from './dto/item-library.dto';
+import { text } from '../../common/i18n/messages';
 
 const ITEM_LISTINGS = 10;
 const MARKET_SALES_TTL_MS = 30 * 60_000;
@@ -69,7 +70,7 @@ export class ItemsService {
     const item = this.index.find(name);
 
     if (!item) {
-      throw new NotFoundException('Item is not sold on any market right now');
+      throw new NotFoundException(text('itemNotListed'));
     }
 
     const checked = this.board.checkedTimes(name);

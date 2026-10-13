@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
+import { localeMiddleware } from './common/i18n/locale';
 import { appConfig, type AppConfig } from './config/app.config';
 
 const API_PREFIX = 'api';
@@ -18,6 +19,7 @@ async function bootstrap(): Promise<void> {
   app.useLogger(logger);
   app.setGlobalPrefix(API_PREFIX);
   app.use(helmet());
+  app.use(localeMiddleware);
   app.useBodyParser('json', { limit: '8mb' });
   app.useGlobalPipes(
     new ValidationPipe({

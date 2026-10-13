@@ -1,10 +1,63 @@
-# skins-back
+<div align="center">
 
-API для поиска выгодных скинов CS2 на [white.market](https://white.market), [DMarket](https://dmarket.com),
-[CSFloat](https://csfloat.com), [lis-skins](https://lis-skins.com) и [Steam Market](https://steamcommunity.com/market/).
-Фронтенд лежит рядом, в `skins-front`.
+# SkinScout API
 
-## Запуск
+**Prices, buy orders, float finds and inventory valuation across CS2 skin markets.**
+
+[![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![TypeORM](https://img.shields.io/badge/TypeORM-1-FE0803?logo=typeorm&logoColor=white)](https://typeorm.io/)
+[![Swagger](https://img.shields.io/badge/OpenAPI-Swagger-85EA2D?logo=swagger&logoColor=black)](https://swagger.io/)
+[![Jest](https://img.shields.io/badge/Tested_with-Jest-C21325?logo=jest&logoColor=white)](https://jestjs.io/)
+
+[Frontend repository](https://github.com/bohdanhora/skins-front) · [Live application](https://skins-front-production.up.railway.app)
+
+</div>
+
+## Overview
+
+SkinScout API is a NestJS REST service that finds profitable CS2 skins on
+[white.market](https://white.market), [DMarket](https://dmarket.com), [CSFloat](https://csfloat.com),
+[lis-skins](https://lis-skins.com) and [Steam Market](https://steamcommunity.com/market/). It collects
+prices and buy orders, scans lots by float, pattern and phase, values Steam inventories after fees and
+stores accounts, purchases and favorite sets in PostgreSQL.
+
+The first price collection takes about a minute. After that prices stay in memory, refresh every
+`PRICES_REFRESH_MINUTES` minutes and are saved to `.cache/`, so a restart shows everything right away.
+
+## Core capabilities
+
+- **Price board** - the lowest price, lot count and best buy order of every item on every market.
+- **Deals** - where an item is cheaper, what can be resold after fees and what sells straight to a
+  DMarket buy order.
+- **Top offers** - current price against eight weeks of sales, with liquidity, depth and trend.
+- **Float finds** - a background scanner that matches lots to pricier buy orders by float, pattern or
+  phase.
+- **Stickers** - skins that already carry the wanted stickers, sorted by how little they add to the
+  price.
+- **Inventory** - payout of every item on every market after selling and withdrawal fees.
+- **Trade-ups, purchases and favorites** - contract math, purchase history and saved item sets.
+- **Betting** - upcoming matches of major tournaments with a map-by-map model against bookmaker odds.
+- **Assistant** - optional, on the provider key each user connects. Keys are encrypted with
+  `ENCRYPTION_KEY`, and all numbers are still calculated by the service.
+- **Localization** - errors and assistant answers follow the `Accept-Language` header, `en` by default
+  and `ru`.
+
+## Tech stack
+
+| Area              | Technology                                          |
+| ----------------- | --------------------------------------------------- |
+| Runtime framework | NestJS 11, Node.js 20+, TypeScript                  |
+| Database          | PostgreSQL 17, TypeORM, migrations applied on start |
+| API documentation | OpenAPI through `@nestjs/swagger`                   |
+| Authentication    | Steam OpenID, optional app password                 |
+| Validation        | class-validator, class-transformer                  |
+| Security          | helmet, CORS allowlist, throttling                  |
+| Logging           | pino through nestjs-pino                            |
+| Testing           | Jest, ts-jest                                       |
+
+## Getting started
 
 ```bash
 cp .env.example .env
@@ -13,103 +66,125 @@ npm install
 npm run dev
 ```
 
-API: `http://localhost:4100/api`, документация Swagger: `http://localhost:4100/api/docs`.
+The API runs on `http://localhost:4100/api`, Swagger on `http://localhost:4100/api/docs`. Docker
+Compose starts PostgreSQL on port 5433.
 
-## Аккаунты и база
+## Accounts and database
 
-Аккаунты и покупки хранятся в Postgres (`DATABASE_URL`). Миграции применяются сами при старте.
-Локально база поднимается через `docker compose up -d` на порту 5433.
+Accounts and purchases are stored in PostgreSQL (`DATABASE_URL`). Migrations are applied on start.
 
-Вход только через Steam (OpenID). Steam возвращает пользователя на `PUBLIC_API_URL/api/auth/steam/return`,
-а API отправляет его на `FRONTEND_URL/auth` с токеном сессии. На Railway нужно добавить Postgres и
-задать `DATABASE_URL`, `PUBLIC_API_URL` (публичный адрес API без `/api`) и `FRONTEND_URL`.
-Если база подключается по внешнему адресу с SSL, поставь `DATABASE_SSL=true`.
+Sign-in works only through Steam (OpenID). Steam returns the user to
+`PUBLIC_API_URL/api/auth/steam/return`, and the API sends them to `FRONTEND_URL/auth` with a session
+token. On Railway add PostgreSQL and set `DATABASE_URL`, `PUBLIC_API_URL` (the public API address
+without `/api`) and `FRONTEND_URL`. When the database is reached over an external address with SSL,
+set `DATABASE_SSL=true`.
 
-Первый сбор цен занимает около минуты. Потом цены держатся в памяти, обновляются каждые
-`PRICES_REFRESH_MINUTES` минут и сохраняются в `.cache/`, так что после перезапуска всё видно сразу.
+When `APP_PASSWORD` is set, every request except the access check needs a token issued for that
+password.
 
-## Откуда берутся цены
+## Price sources
 
-| Что                                   | Источник                                                                   | Ключ     |
-| ------------------------------------- | -------------------------------------------------------------------------- | -------- |
-| Самая низкая цена на white.market     | `export.white.market/v1/prices/730.json`                                   | не нужен |
-| Цена и лучшая заявка на DMarket       | `POST /marketplace-api/v1/aggregated-prices`, по 200 названий за раз       | не нужен |
-| Минимальная цена и количество CSFloat | CSFloat API `GET /v1/listings/price-list`                                  | не нужен |
-| История продаж по дням на DMarket     | `GET /trade-aggregator/v1/avg-sales-graph`                                 | не нужен |
-| Все лоты DMarket с флоатом и заявки   | `GET /marketplace-api/v1/market-depth`                                     | не нужен |
-| Картинки, редкость, коллекции         | [ByMykel/CSGO-API](https://github.com/ByMykel/CSGO-API)                    | не нужен |
-| Лоты с флоатом и наклейками           | white.market, DMarket и CSFloat API                                        | нужен    |
-| Поиск скинов по наклейкам             | API всех трёх площадок                                                     | нужен    |
-| Лоты CSFloat с точным флоатом         | CSFloat API `GET /v1/listings`                                             | нужен    |
-| Лоты Steam с флоатом и паттерном      | Серверная выдача Steam Market                                              | не нужен |
-| Цена и количество на lis-skins        | `lis-skins.com/market_export_json/csgo.json`                               | не нужен |
-| Цены DMarket по фазам Doppler         | стакан DMarket `market-depth`, фаза есть у каждого лота и заявки           | не нужен |
-| Продажи DMarket по фазе               | `avg-sales-graph` с `filters=phase[]=...`                                  | не нужен |
-| Продажи CSFloat по дням               | CSFloat API `GET /v1/history/{name}/graph` (`paint_index` для фазы)        | нужен    |
-| Продажи white.market по дням          | GraphQL сайта `market_stats_product`, фаза названием (`Sapphire`)          | не нужен |
-| Цена Steam в USD                      | `steamcommunity.com/market/priceoverview`                                  | не нужен |
-| Инвентарь Steam                       | `steamcommunity.com/inventory/{steamid}/730/2`, профиль должен быть открыт | не нужен |
+| Data                                   | Source                                                                     | Key |
+| -------------------------------------- | -------------------------------------------------------------------------- | --- |
+| Lowest price on white.market           | `export.white.market/v1/prices/730.json`                                   | No  |
+| Price and best buy order on DMarket    | `POST /marketplace-api/v1/aggregated-prices`, 200 names per request        | No  |
+| Lowest price and lot count on CSFloat  | CSFloat API `GET /v1/listings/price-list`                                  | No  |
+| Daily sales history on DMarket         | `GET /trade-aggregator/v1/avg-sales-graph`                                 | No  |
+| Every DMarket lot with float and order | `GET /marketplace-api/v1/market-depth`                                     | No  |
+| Images, rarity, collections            | [ByMykel/CSGO-API](https://github.com/ByMykel/CSGO-API)                    | No  |
+| Lots with float and stickers           | white.market, DMarket and CSFloat APIs                                     | Yes |
+| Skin search by stickers                | APIs of all three markets                                                  | Yes |
+| CSFloat lots with exact float          | CSFloat API `GET /v1/listings`                                             | Yes |
+| Steam lots with float and pattern      | Steam Market server-side listings                                          | No  |
+| Price and lot count on lis-skins       | `lis-skins.com/market_export_json/csgo.json`                               | No  |
+| DMarket prices by Doppler phase        | DMarket `market-depth`, every lot and order carries its phase              | No  |
+| DMarket sales by phase                 | `avg-sales-graph` with `filters=phase[]=...`                               | No  |
+| Daily CSFloat sales                    | CSFloat API `GET /v1/history/{name}/graph` (`paint_index` for the phase)   | Yes |
+| Daily white.market sales               | Site GraphQL `market_stats_product`, phase by name (`Sapphire`)            | No  |
+| Steam price in USD                     | `steamcommunity.com/market/priceoverview`                                  | No  |
+| Steam inventory                        | `steamcommunity.com/inventory/{steamid}/730/2`, the profile must be public | No  |
 
-Прайс-листы white.market и CSFloat площадки обновляют сами. DMarket отвечает свежими данными при каждом запросе.
+white.market and CSFloat refresh their price lists on their own. DMarket answers with fresh data on
+every request.
 
-## Ключи (необязательно)
+## Keys (optional)
 
-Сравнение цен работает без ключей. Ключи открывают поиск скинов с наклейками и конкретные лоты в карточке предмета.
+Price comparison works without keys. Keys unlock skin search by stickers and the individual lots in
+the item card.
 
-- **white.market**: профиль, раздел Partner token. Значение в `WHITE_MARKET_PARTNER_TOKEN`.
-  Сервер сам меняет его на access token (живёт 24 часа) и продлевает.
-- **DMarket**: настройки аккаунта, Trading API, сгенерировать ключи. Публичный ключ в `DMARKET_PUBLIC_KEY`,
-  приватный в `DMARKET_SECRET_KEY` (оба hex). Запросы подписываются Ed25519.
-- **CSFloat**: API key из настроек аккаунта в `CSFLOAT_API_KEY`.
+- **white.market** - profile, Partner token section. The value goes to `WHITE_MARKET_PARTNER_TOKEN`.
+  The server exchanges it for an access token (valid for 24 hours) and renews it.
+- **DMarket** - account settings, Trading API, generate keys. The public key goes to
+  `DMARKET_PUBLIC_KEY`, the private one to `DMARKET_SECRET_KEY` (both hex). Requests are signed with
+  Ed25519.
+- **CSFloat** - API key from the account settings in `CSFLOAT_API_KEY`.
+- **Betting** - `ODDSPAPI_API_KEY` for odds and `PANDASCORE_API_TOKEN` for the match schedule.
 
-Ключи используются только для чтения: сервер ничего не покупает и не выставляет.
+Market keys are read only: the server never buys or lists anything.
 
-## Как считается выгода
+## How profit is calculated
 
-Все деньги внутри в центах USD.
+All money is kept in USD cents.
 
-- **Где дешевле**: разница между самыми низкими ценами площадок, в процентах от большей.
-- **Перепродать**: купить на дешёвой площадке, выставить на другой на цент дешевле всех, минус комиссия продавца.
-- **Продать сразу**: купить на white.market и продать в лучшую заявку DMarket, минус комиссия DMarket.
+- **Where cheaper** - the gap to the next cheapest market, not to the most expensive one, so a single
+  overpriced lot does not produce a fake discount. Shown as a share of the higher price.
+- **Resell** - buy on the cheaper market, list on another one cent below everyone, minus the seller
+  fee.
+- **Sell instantly** - buy on white.market and sell to the best DMarket buy order, minus the DMarket
+  fee.
+- **Top offers** - the current lowest price against the market. The market is the smaller of two
+  values: the lower quarter of daily average DMarket sale prices or the price on the second market.
+  Rare floats and patterns inflate the average sale price, so the lower quarter is used, and the
+  second market keeps the discount from looking bigger than it is. The signal weighs the discount,
+  buy order coverage, sales over eight weeks, depth and the weekly trend.
+- **Float finds** - a background scanner reads the DMarket order book of every skin with buy orders
+  (about 12 thousand) and looks for lots that already fit a pricier order by float group, pattern or
+  phase. Matching white.market and CSFloat lots are checked too. Order quantity counts: an order for 3
+  items only gets the 3 cheapest matching lots. Profit is net of the DMarket fee.
+- **Rate limit** - every DMarket request goes through a shared limiter
+  (`DMARKET_REQUESTS_PER_SECOND`), and interface requests always go ahead of background scanners.
+- **Float** - DMarket shows every lot with float and pattern publicly, so range search works without a
+  key. Without a key white.market only reveals the float of its cheapest lot. CSFloat requires a key.
+  Steam is shown separately, because wallet balance and cash USD are not the same currency.
+- **Phases** - Ruby, Sapphire, Emerald, Black Pearl and Phase 1-4 are indexed as separate variants on
+  every market. DMarket phase prices come from the order book, and orders for one phase never affect
+  the price of another. Sales history of a plain Doppler is built from Phase 1-4 without the rare
+  phases. CSFloat returns a price list without phases, so phases are read from lots in the
+  background. The generic Doppler card is left out of the results.
+- **Inventory** - `GET /inventory?profile=...` calculates the payout of every item on every market:
+  one cent below the cheapest lot, minus the seller fee, minus the withdrawal fee
+  (`withdrawWhiteMarket`, `withdrawDmarket`, `withdrawCsfloat`). Selling to a DMarket buy order is
+  shown separately.
+- **lis-skins** is a buying market only: resale and inventory valuation never suggest selling there.
+- **Skins with stickers** - `GET /stickers/skins?stickers=...&item=...&sort=deal`. `item` is the exact
+  name or part of it. For every lot the service calculates the extra cost over the cheapest identical
+  skin and its share of the price of the wanted stickers (`overpayShare`), which `deal` sorts by.
+  DMarket filters by sticker name without the `Sticker | ` prefix.
 
-- **Топ предложения**: текущая низкая цена против рынка. Рынок здесь это меньшее из двух: нижняя четверть дневных
-  средних цен продаж на DMarket или цена на второй площадке. Среднюю цену продаж завышают редкие флоаты
-  и паттерны, поэтому берётся нижняя четверть, а вторая площадка не даёт насчитать скидку больше реальной.
-  Сигнал учитывает скидку, покрытие заявкой, продажи за восемь недель, глубину и недельный тренд.
-- **Находки по флоату**: фоновый сканер читает стакан DMarket у каждого скина с заявками (~12 тысяч) и ищет лоты,
-  которые уже подходят под более дорогую заявку: по группе флоата, паттерну или фазе. Подходящие лоты white.market
-  и CSFloat тоже проверяются. Объём заявки учитывается: заявку на 3 штуки получат только 3
-  самых дешёвых подходящих лота. Прибыль считается за вычетом комиссии DMarket.
-- Все запросы к DMarket идут через общий ограничитель (`DMARKET_REQUESTS_PER_SECOND`): действия в интерфейсе
-  всегда впереди фоновых сканеров.
-- **Флоат**: у DMarket публично виден каждый лот с флоатом и паттерном, поэтому поиск по диапазону работает без ключа.
-  У white.market без ключа известен только флоат самого дешёвого лота. CSFloat требует ключ. Steam выводится отдельно,
-  поскольку баланс кошелька и наличные USD нельзя считать одной валютой.
+Fees come from the frontend (`feeWhiteMarket`, `feeDmarket`, in percent), 5% by default.
 
-- **Фазы**: Ruby, Sapphire, Emerald, Black Pearl и Phase 1-4 индексируются как разные варианты на всех площадках.
-  Цены DMarket по фазам берутся из стакана, заявки на конкретную фазу не попадают в цену других фаз. История продаж
-  обычного Doppler собирается из Phase 1-4 без редких фаз. CSFloat отдаёт прайс-лист без фаз, поэтому фазы
-  дочитываются фоном из лотов. Обобщённая карточка Doppler в выдачу не попадает.
-- **Где дешевле**: разница считается до следующей по цене площадки, а не до самой дорогой, чтобы одинокий
-  завышенный лот не давал фальшивую скидку.
-- **Инвентарь**: `GET /inventory?profile=...` для каждого предмета считает выплату на каждой площадке: цена на цент
-  ниже самого дешёвого лота, минус комиссия продавца, минус комиссия вывода (`withdrawWhiteMarket`,
-  `withdrawDmarket`, `withdrawCsfloat`). Отдельно продажа в заявку DMarket.
-- **lis-skins** только площадка покупки: в перепродаже и оценке инвентаря продажа туда не предлагается.
+## Project structure
 
-- **Скины с наклейками**: `GET /stickers/skins?stickers=...&item=...&sort=deal`. `item` это точное название или его
-  часть. Для каждого лота считается доплата к самому дешёвому такому же скину и её доля от цены искомых наклеек
-  (`overpayShare`), по ней и сортирует `deal`. DMarket фильтрует по названию наклейки без префикса `Sticker | `.
-
-Комиссии приходят с фронтенда (`feeWhiteMarket`, `feeDmarket`, в процентах), по умолчанию 5%.
-
-## Команды
-
-```bash
-npm run dev
-npm run build
-npm run start:prod
-npm run lint
-npm run typecheck
-npm test
+```text
+src
+  common         cache, encryption, error filters, HTTP helpers, request locale
+  config         environment validation and typed configuration
+  domain         framework-free price, float, phase, trade-up and betting math
+  migrations     TypeORM migrations
+  modules        markets, prices, items, floats, stickers, inventory, purchases, betting, assistant
 ```
+
+## Scripts
+
+| Script               | Purpose                     |
+| -------------------- | --------------------------- |
+| `npm run dev`        | Start in watch mode         |
+| `npm run build`      | Compile to `dist`           |
+| `npm run start:prod` | Run the compiled build      |
+| `npm run lint`       | ESLint                      |
+| `npm run typecheck`  | TypeScript without emitting |
+| `npm test`           | Unit tests                  |
+
+## Author
+
+Created by [Bohdan Hora](https://github.com/bohdanhora).

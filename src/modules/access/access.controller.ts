@@ -5,6 +5,7 @@ import { IsString, MaxLength, MinLength } from 'class-validator';
 
 import { AccessService } from './access.service';
 import { Public } from './public.decorator';
+import { text } from '../../common/i18n/messages';
 
 const OK = 200;
 const LOGIN_ATTEMPTS_PER_MINUTE = 5;
@@ -47,7 +48,7 @@ export class AccessController {
   @ApiOkResponse({ type: AccessTokenDto })
   login(@Body() dto: AccessLoginDto): AccessTokenDto {
     if (!this.access.checkPassword(dto.password)) {
-      throw new UnauthorizedException('Wrong password');
+      throw new UnauthorizedException(text('wrongPassword'));
     }
 
     return { token: this.access.issueToken() };

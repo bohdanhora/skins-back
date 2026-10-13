@@ -9,6 +9,7 @@ import { skinBaseName } from '../../domain/skin-name';
 import { CatalogService } from '../catalog/catalog.service';
 import { type PatternImagesDto } from './dto/pattern-images.dto';
 import { PATTERN_IMAGE_BASE, parsePatternImages, patternPageUrl } from './pattern-images';
+import { text } from '../../common/i18n/messages';
 
 const CACHE_TTL_MS = 14 * 24 * 60 * 60_000;
 const MAX_SEED = 1000;
@@ -33,7 +34,7 @@ export class PatternImagesService {
     const patternId = (variant.phase && skin?.phasePatternIds[variant.phase]) || skin?.patternId;
 
     if (!skin || !patternId) {
-      throw new NotFoundException(`No pattern data for "${name}"`);
+      throw new NotFoundException(text('noPatternData', { name }));
     }
 
     const pageUrl = patternPageUrl(patternId, skin.weaponId);

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 
 import { fetchJson, fetchText, UpstreamError } from '../../common/http/fetch-json';
 import { readAssetTraits, type AssetTraits, type RawAssetProperty } from './steam-asset';
+import { text } from '../../common/i18n/messages';
 
 const COMMUNITY_URL = 'https://steamcommunity.com';
 const IMAGE_URL = 'https://community.cloudflare.steamstatic.com/economy/image';
@@ -83,7 +84,7 @@ export const profilePath = (input: string): string => {
     return `id/${value}`;
   }
 
-  throw new BadRequestException('Profile must be a Steam link, SteamID64 or custom URL name');
+  throw new BadRequestException(text('steamProfileInvalid'));
 };
 
 @Injectable()
@@ -96,7 +97,7 @@ export class SteamInventoryClient {
     const steamId = tagValue(xml, 'steamID64');
 
     if (!steamId || !STEAM_ID.test(steamId)) {
-      throw new NotFoundException('Steam profile not found');
+      throw new NotFoundException(text('steamProfileNotFound'));
     }
 
     return {
@@ -135,7 +136,7 @@ export class SteamInventoryClient {
       );
     } catch (error) {
       if (error instanceof UpstreamError && error.status === FORBIDDEN) {
-        throw new BadRequestException('Steam inventory is private');
+        throw new BadRequestException(text('steamInventoryPrivate'));
       }
 
       throw error;

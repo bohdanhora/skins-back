@@ -40,6 +40,8 @@ import type {
   SmartSearchDto,
 } from './dto/assistant.dto';
 import { ModelClientService } from './model-client.service';
+import { requestLocale } from '../../common/i18n/locale';
+import { text } from '../../common/i18n/messages';
 
 const BRIEF_TTL_MS = 20 * 60_000;
 const TOP_MARKETS = 6;
@@ -90,7 +92,7 @@ Rules:
 - Every probability, price and odds value comes from the JSON you are given. Never invent or change numbers.
 - Search the web for news from the last 14 days about both teams: roster changes, stand-ins, benched or sick players, visa problems, recent form. Prefer hltv.org, liquipedia.net, dust2.us, bo3.gg and the teams' own channels.
 - Judge the suggested best bet: an edge above 15%, a team name that may be mismatched, few maps of history or stale odds are reasons to mark it "check".
-- Write in Russian, short and concrete, no filler.
+- Write in {language}, short and concrete, no filler.
 Answer with a single JSON object and nothing else:
 {"verdict":"confirm|caution|avoid|no_bet","summary":"2-3 sentences","warnings":["..."],"betCheck":{"status":"ok|check","reason":"one sentence"},"lineups":{"team1":["player"],"team2":["player"]}}
 verdict: confirm when the news supports the best bet, caution when something could change the outcome, avoid when the news breaks the forecast, no_bet when there is no best bet.
@@ -103,7 +105,7 @@ price is in US dollars as a number. Use null for anything you cannot see. Never 
 
 const SEARCH_SYSTEM = `You turn a CS2 skin search request into filters for a price comparison site.
 Answer with a single JSON object and nothing else:
-{"q":"words to match in the item name, English","category":"${CATEGORIES.join('|')}","wear":"${WEARS.join('|')}","edition":"${EDITIONS.join('|')}","phase":"${MARKET_PHASES.join('|')}","minPrice":10,"maxPrice":200,"sort":"${SORTS.join('|')}","note":"in Russian, only when part of the request cannot be expressed with these filters"}
+{"q":"words to match in the item name, English","category":"${CATEGORIES.join('|')}","wear":"${WEARS.join('|')}","edition":"${EDITIONS.join('|')}","phase":"${MARKET_PHASES.join('|')}","minPrice":10,"maxPrice":200,"sort":"${SORTS.join('|')}","note":"in {language}, only when part of the request cannot be expressed with these filters"}
 Leave out every field the request does not mention. Prices are in US dollars. Knife and glove names start with "★" but q must not contain it.`;
 
 const PICK_SYSTEM = `You pick CS2 skins for a trader from a list of real items that are on sale right now.
@@ -111,21 +113,21 @@ Rules:
 - Choose only names from the list, copied exactly. Never add anything that is not in the list.
 - Keep only items that satisfy every part of the request: knife or weapon type, finish, phase, wear, edition, price.
 - If the request asks for the best or most worthwhile option, prefer items that sell often at a sensible price. Otherwise rank by how well they fit.
-- Give at most 12 picks, fewer is fine. The reason is at most 15 words in Russian and may only use facts from the list: price, lots on sale, recent sales.
+- Give at most 12 picks, fewer is fine. The reason is at most 15 words in {language} and may only use facts from the list: price, lots on sale, recent sales.
 - If nothing in the list fits, return an empty list and explain in the note.
 Answer with a single JSON object and nothing else:
-{"picks":[{"name":"exact name from the list","reason":"..."}],"note":"in Russian, only when something important must be said"}`;
+{"picks":[{"name":"exact name from the list","reason":"..."}],"note":"in {language}, only when something important must be said"}`;
 
 const BLUE_SYSTEM = `You explain Case Hardened blue gem listings to a CS2 trader.
 Every number comes from the JSON you are given: price, blue share, the estimate from similar recent CSFloat sales, how many similar sales it rests on and the margin. Never invent or change numbers.
-For each listing write one short honest sentence in Russian: why it is worth a look or what the catch is (few similar sales, blue by calculator only, estimate barely above the price).
+For each listing write one short honest sentence in {language}: why it is worth a look or what the catch is (few similar sales, blue by calculator only, estimate barely above the price).
 Then one or two sentences of summary. If nothing is clearly underpriced, say so plainly.
 Answer with a single JSON object and nothing else:
 {"reasons":{"<id>":"..."},"summary":"..."}`;
 
 const FLOAT_SYSTEM = `You explain CS2 skin listings found by float to a trader.
 Every number comes from the JSON you are given: price, float, the cheapest listing with a worse float, the saving against them, and the best DMarket buy order that accepts this float with the profit after the fee. Never invent or change numbers.
-For each listing write one short honest sentence in Russian: why it is worth a look or what the catch is (the saving rests on few listings, the order may vanish, the float gain is tiny).
+For each listing write one short honest sentence in {language}: why it is worth a look or what the catch is (the saving rests on few listings, the order may vanish, the float gain is tiny).
 Then one or two sentences of summary.
 Answer with a single JSON object and nothing else:
 {"reasons":{"<index>":"..."},"summary":"..."}`;
@@ -138,7 +140,7 @@ How to judge:
 - Few sales, a wide price spread, a falling trend, or a price above the cheapest similar listing lower the score.
 - If data is missing, say so and keep the score near the middle.
 Score 1-100 is the chance the purchase pays off: 80+ clear bargain, 60-79 good, 40-59 fair price with no edge, below 40 overpaid or risky.
-Write in Russian, short and concrete, with numbers from the JSON in dollars.
+Write in {language}, short and concrete, with numbers from the JSON in dollars.
 Answer with a single JSON object and nothing else:
 {"score":55,"verdict":"buy|consider|skip","summary":"2-3 sentences","pros":["..."],"cons":["..."]}
 At most 4 pros and 4 cons, each under 15 words.`;
@@ -225,9 +227,14 @@ export class AssistantTasksService {
       feeDmarket: input.feeDmarket ?? DEFAULT_FEE_PERCENT,
       feeCsfloat: input.feeCsfloat ?? DEFAULT_FEE_PERCENT,
     };
-    const key = [userId, input.name, fees.feeWhiteMarket, fees.feeDmarket, fees.feeCsfloat].join(
-      '|',
-    );
+    const key = [
+      userId,
+      requestLocale(),
+      input.name,
+      fees.feeWhiteMarket,
+      fees.feeDmarket,
+      fees.feeCsfloat,
+    ].join('|');
     const cached = this.analyses.get(key);
     const refresh = input.refresh === true || input.refresh === 'true';
 
@@ -407,7 +414,7 @@ export class AssistantTasksService {
   }
 
   async brief(userId: string, matchId: number, refresh: boolean): Promise<MatchBriefDto> {
-    const key = `${userId}:${matchId}`;
+    const key = `${userId}:${requestLocale()}:${matchId}`;
     const cached = this.briefs.get(key);
 
     if (!refresh && cached && Date.now() - cached.at < BRIEF_TTL_MS) {
@@ -417,7 +424,7 @@ export class AssistantTasksService {
     const credentials = await this.assistant.credentials(userId);
     const match = await this.betting.match(matchId);
 
-    if (!match) throw new NotFoundException('Матч не найден');
+    if (!match) throw new NotFoundException(text('matchNotFound'));
 
     const answer = await this.client.ask(credentials, {
       system: BRIEF_SYSTEM,
@@ -451,7 +458,7 @@ export class AssistantTasksService {
 
   async draft(userId: string, input: PurchaseDraftInputDto): Promise<PurchaseDraftDto> {
     if (!input.image && !input.url && !input.text) {
-      throw new BadRequestException('Пришли скриншот, ссылку или текст');
+      throw new BadRequestException(text('draftInputRequired'));
     }
 
     const lot = input.url?.match(CSFLOAT_ITEM)?.[1];
@@ -461,9 +468,7 @@ export class AssistantTasksService {
         if (error instanceof CsfloatPausedError) {
           const minutes = Math.max(1, Math.ceil((error.until - Date.now()) / 60_000));
 
-          throw new ServiceUnavailableException(
-            `CSFloat исчерпал лимит запросов, ссылка заработает через ${minutes} мин. Пока можно прислать скриншот`,
-          );
+          throw new ServiceUnavailableException(text('csfloatPaused', { minutes }));
         }
 
         throw error;

@@ -9,6 +9,7 @@ import type { Request } from 'express';
 
 import { AuthService } from './auth.service';
 import type { UserEntity } from './user.entity';
+import { text } from '../../common/i18n/messages';
 
 interface AuthedRequest extends Request {
   user?: UserEntity;
@@ -30,7 +31,7 @@ export class AuthGuard implements CanActivate {
     const user = token ? await this.auth.findUser(token) : null;
 
     if (!user || !token) {
-      throw new UnauthorizedException('Sign in with Steam');
+      throw new UnauthorizedException(text('signInRequired'));
     }
 
     request.user = user;

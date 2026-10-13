@@ -17,6 +17,7 @@ import type {
   AssistantSettingsInputDto,
 } from './dto/assistant.dto';
 import { ModelClientService, type Credentials } from './model-client.service';
+import { text } from '../../common/i18n/messages';
 
 @Injectable()
 export class AssistantService {
@@ -48,7 +49,7 @@ export class AssistantService {
     const apiKey = input.apiKey?.trim();
 
     if (!apiKey && (!existing || existing.provider !== input.provider)) {
-      throw new BadRequestException('Укажи ключ API для этого провайдера');
+      throw new BadRequestException(text('apiKeyRequired'));
     }
 
     const secret = apiKey ? encryptSecret(apiKey, key) : null;
@@ -73,7 +74,7 @@ export class AssistantService {
   async models(userId: string, providerId: string): Promise<string[]> {
     const provider = findAssistantProvider(providerId);
 
-    if (!provider) throw new BadRequestException('Unknown provider');
+    if (!provider) throw new BadRequestException(text('unknownProvider'));
 
     const saved = await this.providers.findOne({ where: { userId } });
 
@@ -89,7 +90,7 @@ export class AssistantService {
     const provider = saved ? findAssistantProvider(saved.provider) : undefined;
 
     if (!saved || !provider) {
-      throw new BadRequestException('Подключи ассистента в настройках');
+      throw new BadRequestException(text('assistantNotConnected'));
     }
 
     return { provider, model: saved.model, apiKey: this.decrypt(saved) };
@@ -104,7 +105,7 @@ export class AssistantService {
 
   private requireKey(): Buffer {
     if (!this.config.encryptionKey) {
-      throw new ServiceUnavailableException('На сервере не задан ENCRYPTION_KEY');
+      throw new ServiceUnavailableException(text('encryptionKeyMissing'));
     }
 
     return this.config.encryptionKey;

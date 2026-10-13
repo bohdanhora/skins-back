@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import type { PurchaseDto, PurchaseInputDto, PurchaseMarket } from './dto/purchase.dto';
 import { PurchaseEntity } from './purchase.entity';
+import { text } from '../../common/i18n/messages';
 
 const toDto = (entity: PurchaseEntity): PurchaseDto => ({
   id: entity.id,
@@ -74,7 +75,7 @@ export class PurchasesService {
     const existing = await this.purchases.findOne({ where: { id, userId } });
 
     if (!existing) {
-      throw new NotFoundException('Purchase not found');
+      throw new NotFoundException(text('purchaseNotFound'));
     }
 
     return toDto(await this.purchases.save(Object.assign(existing, toColumns(input))));
@@ -84,7 +85,7 @@ export class PurchasesService {
     const result = await this.purchases.delete({ id, userId });
 
     if (!result.affected) {
-      throw new NotFoundException('Purchase not found');
+      throw new NotFoundException(text('purchaseNotFound'));
     }
   }
 

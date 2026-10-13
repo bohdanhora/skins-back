@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { BadGatewayException, Injectable, Logger } from '@nestjs/common';
 
 import { usableModels, type AssistantProvider } from '../../domain/assistant-providers';
+import { languageName } from '../../common/i18n/locale';
+import { text } from '../../common/i18n/messages';
 
 const TIMEOUT_MS = 120_000;
 const MAX_TOKENS = 16_000;
@@ -68,15 +70,19 @@ const unique = (sources: Source[]): Source[] => [
   ...new Map(sources.filter((source) => source.url).map((source) => [source.url, source])).values(),
 ];
 
+export const LANGUAGE_TOKEN = '{language}';
+
 @Injectable()
 export class ModelClientService {
   private readonly logger = new Logger(ModelClientService.name);
 
   async ask(credentials: Credentials, input: AskInput): Promise<AskResult> {
-    if (credentials.provider.api === 'anthropic') return this.askAnthropic(credentials, input);
-    if (credentials.provider.api === 'openai') return this.askResponses(credentials, input);
+    const localized = { ...input, system: input.system.replaceAll(LANGUAGE_TOKEN, languageName()) };
 
-    return this.askChat(credentials, input);
+    if (credentials.provider.api === 'anthropic') return this.askAnthropic(credentials, localized);
+    if (credentials.provider.api === 'openai') return this.askResponses(credentials, localized);
+
+    return this.askChat(credentials, localized);
   }
 
   async models(provider: AssistantProvider, apiKey: string): Promise<string[]> {
@@ -98,7 +104,7 @@ export class ModelClientService {
       });
 
       if (response.status === UNAUTHORISED) {
-        throw new BadGatewayException('Провайдер отклонил ключ');
+        throw new BadGatewayException(text('providerRejectedKey'));
       }
 
       const payload = (await response.json().catch(() => null)) as {
@@ -112,7 +118,7 @@ export class ModelClientService {
     } catch (error) {
       if (error instanceof BadGatewayException) throw error;
       if (error instanceof Anthropic.AuthenticationError) {
-        throw new BadGatewayException('Провайдер отклонил ключ');
+        throw new BadGatewayException(text('providerRejectedKey'));
       }
 
       this.logger.warn(`Listing ${provider.id} models failed: ${String(error)}`);
@@ -183,7 +189,7 @@ export class ModelClientService {
         });
 
         if (response.stop_reason === 'refusal') {
-          throw new BadGatewayException('Модель отказалась отвечать на этот запрос');
+          throw new BadGatewayException(text('modelRefused'));
         }
 
         for (const block of response.content) {
@@ -202,10 +208,12 @@ export class ModelClientService {
     } catch (error) {
       if (error instanceof BadGatewayException) throw error;
       if (error instanceof Anthropic.AuthenticationError) {
-        throw new BadGatewayException('Провайдер отклонил ключ');
+        throw new BadGatewayException(text('providerRejectedKey'));
       }
       if (error instanceof Anthropic.APIError) {
-        throw new BadGatewayException(`Провайдер ответил ${error.status}: ${error.message}`);
+        throw new BadGatewayException(
+          text('providerFailed', { status: String(error.status), details: error.message }),
+        );
       }
 
       throw error;
@@ -242,10 +250,10 @@ export class ModelClientService {
 
   private fail(status: number, raw: string): never {
     if (status === UNAUTHORISED) {
-      throw new BadGatewayException('Провайдер отклонил ключ');
+      throw new BadGatewayException(text('providerRejectedKey'));
     }
 
-    throw new BadGatewayException(`Провайдер ответил ${status}: ${raw.slice(0, 300)}`);
+    throw new BadGatewayException(text('providerFailed', { status, details: raw.slice(0, 300) }));
   }
 
   private async askResponses(credentials: Credentials, input: AskInput): Promise<AskResult> {
